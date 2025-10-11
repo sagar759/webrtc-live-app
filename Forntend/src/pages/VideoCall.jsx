@@ -71,7 +71,7 @@ const VideoCall = () => {
     fetchMeetingDetails();
 
     // Initialize socket
-    const newSocket = io('http://localhost:5000');
+    const newSocket = io('https://api.stechooze.com');
     setSocket(newSocket);
 
     return () => {

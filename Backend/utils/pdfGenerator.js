@@ -371,7 +371,7 @@ const generateClaimPDF = async (claim, outputPath) => {
              .text(`${index + 1}. ${doc_item.originalName || doc_item.filename}`, 80, yPosition + 8);
           
           // Download link
-          const downloadUrl = `http://localhost:5000/${doc_item.path || doc_item.filename}`;
+          const downloadUrl = `https://api.stechooze.com/${doc_item.path || doc_item.filename}`;
           doc.fillColor('#667eea')
              .font('Helvetica-Bold')
              .fontSize(9)
@@ -421,7 +421,7 @@ const generateClaimPDF = async (claim, outputPath) => {
              .text(`Uploaded: ${new Date(doc_item.uploadedAt).toLocaleString('en-IN')}`, 80, yPosition + 25);
           
           // Download link
-          const downloadUrl = `http://localhost:5000/${doc_item.path || doc_item.filename}`;
+          const downloadUrl = `https://api.stechooze.com/${doc_item.path || doc_item.filename}`;
           doc.fillColor('#667eea')
              .font('Helvetica-Bold')
              .text('Download: ', 80, yPosition + 40, { continued: true })
@@ -587,7 +587,7 @@ const generateClaimPDF = async (claim, outputPath) => {
              .text(`Captured: ${new Date(image.capturedAt).toLocaleString('en-IN')}`, 80, yPosition + 38);
           
           // Download link
-          const downloadUrl = `http://localhost:5000/${image.path || image.filename}`;
+          const downloadUrl = `https://api.stechooze.com/${image.path || image.filename}`;
           doc.fillColor('#667eea')
              .font('Helvetica-Bold')
              .text('Download: ', 80, yPosition + 51, { continued: true })
@@ -638,7 +638,7 @@ const generateClaimPDF = async (claim, outputPath) => {
              .text(`Date: ${new Date(signature.signedAt).toLocaleString('en-IN')}`, 80, yPosition + 38);
           
           // Download link
-          const downloadUrl = `http://localhost:5000/${signature.path || signature.filename}`;
+          const downloadUrl = `https://api.stechooze.com/${signature.path || signature.filename}`;
           doc.fillColor('#667eea')
              .font('Helvetica-Bold')
              .text('Download: ', 80, yPosition + 51, { continued: true })
@@ -691,7 +691,7 @@ const generateClaimPDF = async (claim, outputPath) => {
              .text(`Recorded: ${new Date(recording.recordedAt).toLocaleString('en-IN')}`, 80, yPosition + 49);
           
           // Download link
-          const downloadUrl = `http://localhost:5000/${recording.path || recording.filename}`;
+          const downloadUrl = `https://api.stechooze.com/${recording.path || recording.filename}`;
           doc.fillColor('#667eea')
              .font('Helvetica-Bold')
              .text('Download: ', 80, yPosition + 62, { continued: true })
