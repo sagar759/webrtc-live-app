@@ -22,10 +22,10 @@ API endpoints to generate and download comprehensive PDF reports for insurance c
 #### Request Example
 ```bash
 # Using Claim ID
-GET https://api.stechooze.com/claims/12345/pdf
+GET https://api.stechooze.com/api/claims/12345/pdf
 
 # Using MongoDB _id
-GET https://api.stechooze.com/claims/68ea7770d9667404bc2fd5d9/pdf
+GET https://api.stechooze.com/api/claims/68ea7770d9667404bc2fd5d9/pdf
 ```
 
 #### Headers
@@ -63,7 +63,7 @@ Authorization: Bearer <doctor_token>
 
 #### Request Example
 ```bash
-GET https://api.stechooze.com/claims/12345/pdf-link
+GET https://api.stechooze.com/api/claims/12345/pdf-link
 ```
 
 #### Headers
@@ -78,7 +78,7 @@ Authorization: Bearer <doctor_token>
   "message": "PDF download link generated",
   "data": {
     "claimId": "12345",
-    "downloadLink": "https://api.stechooze.com/claims/12345/pdf",
+    "downloadLink": "https://api.stechooze.com/api/claims/12345/pdf",
     "directDownload": true
   }
 }
@@ -209,7 +209,7 @@ const downloadClaimPDF = async (claimId) => {
     const token = localStorage.getItem('token');
     
     const response = await axios.get(
-      `https://api.stechooze.com/claims/${claimId}/pdf`,
+      `https://api.stechooze.com/api/claims/${claimId}/pdf`,
       {
         headers: {
           Authorization: `Bearer ${token}`
@@ -239,7 +239,7 @@ const getClaimPDFLink = async (claimId) => {
     const token = localStorage.getItem('token');
     
     const response = await axios.get(
-      `https://api.stechooze.com/claims/${claimId}/pdf-link`,
+      `https://api.stechooze.com/api/claims/${claimId}/pdf-link`,
       {
         headers: {
           Authorization: `Bearer ${token}`
@@ -265,7 +265,7 @@ const downloadPDF = async (claimId) => {
   const token = localStorage.getItem('token');
   
   const response = await fetch(
-    `https://api.stechooze.com/claims/${claimId}/pdf`,
+    `https://api.stechooze.com/api/claims/${claimId}/pdf`,
     {
       headers: {
         'Authorization': `Bearer ${token}`
@@ -296,7 +296,7 @@ const ClaimPDFButton = ({ claimId }) => {
       const token = localStorage.getItem('token');
       
       const response = await fetch(
-        `https://api.stechooze.com/claims/${claimId}/pdf`,
+        `https://api.stechooze.com/api/claims/${claimId}/pdf`,
         {
           headers: { 'Authorization': `Bearer ${token}` }
         }
@@ -338,18 +338,18 @@ const ClaimPDFButton = ({ claimId }) => {
 ### Using cURL
 ```bash
 # Download PDF directly
-curl -X GET "https://api.stechooze.com/claims/12345/pdf" \
+curl -X GET "https://api.stechooze.com/api/claims/12345/pdf" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE" \
   --output claim-12345.pdf
 
 # Get download link
-curl -X GET "https://api.stechooze.com/claims/12345/pdf-link" \
+curl -X GET "https://api.stechooze.com/api/claims/12345/pdf-link" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
 ### Using Postman
 1. **Create new GET request**
-2. **URL:** `https://api.stechooze.com/claims/12345/pdf`
+2. **URL:** `https://api.stechooze.com/api/claims/12345/pdf`
 3. **Headers:** 
    - Key: `Authorization`
    - Value: `Bearer YOUR_TOKEN`

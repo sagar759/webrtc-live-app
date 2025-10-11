@@ -308,7 +308,7 @@ function Home() {
       message.loading({ content: 'Generating PDF...', key: 'pdf' });
       
       // Download PDF directly
-      const pdfUrl = `https://api.stechooze.com/claims/${record.claimId}/pdf`;
+      const pdfUrl = `https://api.stechooze.com/api/claims/${record.claimId}/pdf`;
       
       // Create temporary link and trigger download
       const link = document.createElement('a');

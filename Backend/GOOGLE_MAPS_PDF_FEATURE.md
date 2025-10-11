@@ -302,7 +302,7 @@ npm start
 
 ### **2. Generate PDF:**
 ```bash
-curl -X GET "https://api.stechooze.com/claims/12345/pdf" \
+curl -X GET "https://api.stechooze.com/api/claims/12345/pdf" \
   --output claim-with-maps.pdf
 ```
 
