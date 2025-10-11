@@ -355,7 +355,7 @@ exports.saveLocation = async (req, res) => {
     console.log(`Found Claim: ${claim.claimId}`);
     console.log(`Current locations count: ${claim.locations.length}`);
 
-    // Add location to claim
+    // Create location object
     const location = {
       locationType: locationType,
       userName: userName,
@@ -367,7 +367,21 @@ exports.saveLocation = async (req, res) => {
       capturedBy: req.user ? req.user._id : null,
     };
 
-    claim.locations.push(location);
+    // Find if location for this type already exists
+    const existingLocationIndex = claim.locations.findIndex(
+      loc => loc.locationType === locationType
+    );
+
+    if (existingLocationIndex !== -1) {
+      // Update existing location
+      claim.locations[existingLocationIndex] = location;
+      console.log(`Updated existing ${locationType} location`);
+    } else {
+      // Add new location
+      claim.locations.push(location);
+      console.log(`Added new ${locationType} location`);
+    }
+
     await claim.save();
 
     console.log(`Location saved successfully!`);
