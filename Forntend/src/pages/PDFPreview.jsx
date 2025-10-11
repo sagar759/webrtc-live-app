@@ -15,7 +15,7 @@ const PDFPreview = () => {
   useEffect(() => {
     if (claimId) {
       // Set PDF URL
-      const url = `http://localhost:5000/api/claims/${claimId}/pdf`;
+      const url = `https://api.stechooze.com/claims/${claimId}/pdf`;
       setPdfUrl(url);
       setLoading(false);
     } else {

@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'https://api.stechooze.com';
 
 // Admin Login
 export const adminLogin = async (email, password) => {
