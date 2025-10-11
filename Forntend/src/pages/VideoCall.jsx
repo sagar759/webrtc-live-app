@@ -637,19 +637,69 @@ const VideoCall = () => {
       return;
     }
 
+    if (!localStream) {
+      message.error('Local audio stream not available');
+      return;
+    }
+
     try {
-      // Capture screen + audio
+      // Capture screen + system audio
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: { mediaSource: 'screen' },
         audio: true
       });
 
-      // Create media recorder
+      // Create a combined stream with screen video and both audio sources
+      const combinedStream = new MediaStream();
+      
+      // Add video track from screen
+      const videoTrack = screenStream.getVideoTracks()[0];
+      if (videoTrack) {
+        combinedStream.addTrack(videoTrack);
+      }
+
+      // Create audio context to mix audio tracks
+      const audioContext = new AudioContext();
+      const destination = audioContext.createMediaStreamDestination();
+
+      // Add screen audio if available
+      const screenAudioTracks = screenStream.getAudioTracks();
+      if (screenAudioTracks.length > 0) {
+        const screenAudioSource = audioContext.createMediaStreamSource(
+          new MediaStream([screenAudioTracks[0]])
+        );
+        screenAudioSource.connect(destination);
+        console.log('✅ Added screen audio to recording');
+      }
+
+      // Add doctor's microphone audio (THIS IS THE FIX!)
+      const localAudioTracks = localStream.getAudioTracks();
+      if (localAudioTracks.length > 0) {
+        const micAudioSource = audioContext.createMediaStreamSource(
+          new MediaStream([localAudioTracks[0]])
+        );
+        micAudioSource.connect(destination);
+        console.log('✅ Added doctor microphone audio to recording');
+      } else {
+        console.warn('⚠️ No microphone audio track found');
+      }
+
+      // Add the mixed audio track to combined stream
+      if (destination.stream.getAudioTracks().length > 0) {
+        combinedStream.addTrack(destination.stream.getAudioTracks()[0]);
+      }
+
+      console.log('Recording stream tracks:', {
+        video: combinedStream.getVideoTracks().length,
+        audio: combinedStream.getAudioTracks().length
+      });
+
+      // Create media recorder with combined stream
       const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
         ? 'video/webm; codecs=vp9'
         : 'video/webm';
 
-      mediaRecorderRef.current = new MediaRecorder(screenStream, {
+      mediaRecorderRef.current = new MediaRecorder(combinedStream, {
         mimeType: mimeType,
         videoBitsPerSecond: 2500000 // 2.5 Mbps
       });
@@ -666,6 +716,8 @@ const VideoCall = () => {
         const duration = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000);
         await saveRecording(duration);
         screenStream.getTracks().forEach(track => track.stop());
+        combinedStream.getTracks().forEach(track => track.stop());
+        audioContext.close();
       };
 
       // Start recording
@@ -679,7 +731,7 @@ const VideoCall = () => {
         setRecordingDuration(prev => prev + 1);
       }, 1000);
 
-      message.success('🔴 Screen recording started!');
+      message.success('🔴 Screen recording started with your microphone!');
 
       // Handle user stopping screen share
       screenStream.getVideoTracks()[0].onended = () => {
