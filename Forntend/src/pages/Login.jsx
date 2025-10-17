@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, message, ConfigProvider, Modal, Space } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { doctorLogin, adminLogin, registerDoctor } from '../services/api';
+import Logo from '../assets/Logo.jpeg';
 
 const { Title } = Typography;
 
@@ -142,18 +143,17 @@ function Login() {
         >
           <div style={{ textAlign: 'center', marginBottom: '32px' }} className="animate-slide-in">
             <div style={{
-              width: '80px',
-              height: '80px',
+              width: '120px',
+              height: '120px',
               margin: '0 auto 20px',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               borderRadius: '20px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
-              animation: 'pulse 2s ease-in-out infinite'
+              overflow: 'hidden'
             }}>
-              <UserOutlined style={{ fontSize: '36px', color: '#ffffff' }} />
+              <img src={Logo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             </div>
             <Title level={2} style={{ color: '#000000', marginBottom: '8px', fontWeight: 700 }}>
               Welcome Back

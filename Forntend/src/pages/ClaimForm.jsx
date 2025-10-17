@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, Row, Col, DatePicker, Upload, Select, Radio, message } from 'antd';
-import { UploadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
-import { submitClaimForm } from '../services/api';
+import { UploadOutlined, ArrowLeftOutlined, VideoCameraOutlined } from '@ant-design/icons';
+import { submitClaimForm, getMeetingByClaimId } from '../services/api';
+import Logo from '../assets/Logo.jpeg';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -16,6 +17,7 @@ const ClaimForm = () => {
   
   const [loading, setLoading] = useState(false);
   const [fileList, setFileList] = useState([]);
+  const [meetingRoomId, setMeetingRoomId] = useState(null);
 
   const handleSubmit = async (values) => {
     setLoading(true);
@@ -65,6 +67,24 @@ const ClaimForm = () => {
     setFileList(newFileList);
   };
 
+  // Fetch meeting details to get room ID for rejoin
+  useEffect(() => {
+    const fetchMeetingDetails = async () => {
+      if (claimId) {
+        try {
+          const user = JSON.parse(localStorage.getItem('user') || '{}');
+          const response = await getMeetingByClaimId(claimId, user.token);
+          if (response.success && response.data.roomId) {
+            setMeetingRoomId(response.data.roomId);
+          }
+        } catch (error) {
+          console.error('Error fetching meeting details:', error);
+        }
+      }
+    };
+    fetchMeetingDetails();
+  }, [claimId]);
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -72,23 +92,43 @@ const ClaimForm = () => {
       padding: '20px',
     }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <Button
-          icon={<ArrowLeftOutlined />}
-          onClick={() => navigate('/home')}
-          style={{
-            marginBottom: '20px',
-            background: 'rgba(255,255,255,0.3)',
-            color: '#ffffff',
-            border: 'none',
-            borderRadius: '8px',
-            height: '40px',
-            fontWeight: 600,
-          }}
-        >
-          Back to Home
-        </Button>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate('/home')}
+            style={{
+              background: 'rgba(255,255,255,0.3)',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              height: '40px',
+              fontWeight: 600,
+            }}
+          >
+            Back to Home
+          </Button>
+          {meetingRoomId && (
+            <Button
+              icon={<VideoCameraOutlined />}
+              onClick={() => navigate(`/meeting/${meetingRoomId}?role=doctor`)}
+              style={{
+                background: 'rgba(16, 185, 129, 0.9)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                height: '40px',
+                fontWeight: 600,
+              }}
+            >
+              Rejoin Meeting
+            </Button>
+          )}
+        </div>
 
         <Card style={{ borderRadius: '16px', boxShadow: '0 8px 32px rgba(0,0,0,0.1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '20px' }}>
+            <img src={Logo} alt="Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '12px' }} />
+          </div>
           <Title level={2} style={{ textAlign: 'center', marginBottom: '10px', color: '#667eea' }}>
             📋 Detailed Claim Form
           </Title>

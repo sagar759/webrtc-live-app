@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card, Typography, Space, message, Spin } from 'antd';
 import { DownloadOutlined, ArrowLeftOutlined, FilePdfOutlined, HomeOutlined } from '@ant-design/icons';
+import Logo from '../assets/Logo.jpeg';
 
 const { Title, Text } = Typography;
 
@@ -76,14 +77,17 @@ const PDFPreview = () => {
             justifyContent: 'space-between',
             alignItems: 'center',
           }}>
-            <div>
-              <Title level={2} style={{ margin: 0, color: '#667eea' }}>
-                <FilePdfOutlined style={{ marginRight: '12px' }} />
-                PDF Report Preview
-              </Title>
-              <Text style={{ color: '#6b7280', fontSize: '16px' }}>
-                Claim ID: <strong style={{ color: '#764ba2' }}>{claimId}</strong>
-              </Text>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <img src={Logo} alt="Logo" style={{ width: '60px', height: '60px', objectFit: 'contain', borderRadius: '12px' }} />
+              <div>
+                <Title level={2} style={{ margin: 0, color: '#667eea' }}>
+                  <FilePdfOutlined style={{ marginRight: '12px' }} />
+                  PDF Report Preview
+                </Title>
+                <Text style={{ color: '#6b7280', fontSize: '16px' }}>
+                  Claim ID: <strong style={{ color: '#764ba2' }}>{claimId}</strong>
+                </Text>
+              </div>
             </div>
             <Space size="middle">
               <Button

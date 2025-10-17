@@ -22,8 +22,12 @@ const meetingSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['scheduled', 'ongoing', 'completed'],
+    enum: ['scheduled', 'ongoing', 'meeting_completed', 'completed'],
     default: 'scheduled',
+  },
+  claimFormSubmitted: {
+    type: Boolean,
+    default: false,
   },
   participants: [{
     userId: String,

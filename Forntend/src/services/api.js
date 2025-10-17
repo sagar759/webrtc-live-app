@@ -107,14 +107,41 @@ export const createClaim = async (claimData, files, token) => {
       body: formData,
     });
 
+    // Check if response is JSON
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      throw new Error('Server error: Invalid response format');
+    }
+
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.message || 'Failed to create claim');
+      // Extract error message from response
+      const errorMsg = data.message || data.error || 'Failed to create claim';
+      
+      // Check for specific error types
+      if (response.status === 400) {
+        if (data.missingFields && data.missingFields.length > 0) {
+          throw new Error(`Missing required fields: ${data.missingFields.join(', ')}`);
+        }
+        throw new Error(errorMsg);
+      } else if (response.status === 401) {
+        throw new Error('Unauthorized: Please login again');
+      } else if (response.status === 409) {
+        throw new Error('Claim ID already exists');
+      } else if (response.status >= 500) {
+        throw new Error('Server error: Please try again later');
+      }
+      
+      throw new Error(errorMsg);
     }
 
     return data;
   } catch (error) {
+    // Handle network errors
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error('Network error: Unable to connect to server. Please check your internet connection.');
+    }
     throw error;
   }
 };
@@ -245,6 +272,72 @@ export const updateMeetingStatus = async (meetingId, status, token) => {
 
     if (!response.ok) {
       throw new Error(data.message || 'Failed to update meeting status');
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Start meeting by room ID
+export const startMeetingByRoomId = async (roomId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/meetings/room/${roomId}/start`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to start meeting');
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Complete meeting by room ID
+export const completeMeetingByRoomId = async (roomId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/meetings/room/${roomId}/complete`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to complete meeting');
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Get meeting by claim ID
+export const getMeetingByClaimId = async (claimId, token) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/meetings/claim/${claimId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to fetch meeting');
     }
 
     return data;

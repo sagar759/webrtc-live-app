@@ -179,9 +179,21 @@ const claimSchema = new mongoose.Schema({
     ref: 'Doctor',
     required: true,
   },
+  doctorName: {
+    type: String,
+    trim: true,
+  },
+  doctorEmail: {
+    type: String,
+    trim: true,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
+  },
+  completedAt: {
+    type: Date,
+    default: null,
   },
 });
 

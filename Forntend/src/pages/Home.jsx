@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Typography, Space, ConfigProvider, Badge, Modal, Form, Input, message, Steps, Upload, Select, DatePicker, Table, Tag } from 'antd';
-import { LogoutOutlined, UserOutlined, VideoCameraOutlined, TeamOutlined, SettingOutlined, PlusOutlined, InboxOutlined, FileAddOutlined, SearchOutlined, FilterOutlined, FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined, LockOutlined, CopyOutlined, LinkOutlined, DownloadOutlined, FilePdfOutlined } from '@ant-design/icons';
-import { adminLogin, registerDoctor, createClaim, getAllClaims, createMeeting } from '../services/api';
+import { LogoutOutlined, UserOutlined, VideoCameraOutlined, TeamOutlined, SettingOutlined, PlusOutlined, InboxOutlined, FileAddOutlined, SearchOutlined, FilterOutlined, FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined, LockOutlined, CopyOutlined, LinkOutlined, DownloadOutlined, FilePdfOutlined, ReloadOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { adminLogin, registerDoctor, createClaim, getAllClaims, createMeeting, getMeetingByClaimId } from '../services/api';
+import Logo from '../assets/Logo.jpeg';
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -28,10 +29,13 @@ function Home() {
   const [statistics, setStatistics] = useState({
     totalClaims: 0,
     openClaims: 0,
-    closedClaims: 0
+    closedClaims: 0,
+    totalMeetingHours: 0,
+    claimsExceeding6Hours: 0
   });
   const [step1Data, setStep1Data] = useState(null);
   const [joiningMeetingId, setJoiningMeetingId] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Get user token from localStorage using useMemo
   const user = useMemo(() => JSON.parse(localStorage.getItem('user') || '{}'), []);
@@ -44,29 +48,108 @@ function Home() {
     }
   }, [userToken]);
 
-  const fetchClaims = async () => {
+  const fetchClaims = async (showLoading = false) => {
+    if (showLoading) {
+      setRefreshing(true);
+    }
+    
     try {
       const response = await getAllClaims(userToken);
       if (response.success) {
-        const claims = response.data.map((claim, index) => ({
-          key: claim._id,
-          claimId: claim.claimId,
-          patientMobile: claim.patientMobile,
-          hospitalLocation: `${claim.hospitalCity}, ${claim.hospitalState}`,
-          status: claim.status,
-          created: new Date(claim.createdAt).toLocaleDateString('en-IN'),
-        }));
-        setClaimsData(claims);
+        // Fetch meeting status for each claim
+        let totalMeetingMinutes = 0;
+        const claimsWithMeetingStatus = await Promise.all(
+          response.data.map(async (claim) => {
+            let meetingStatus = null;
+            let meetingStartTime = null;
+            let meetingEndTime = null;
+            try {
+              const meetingResponse = await getMeetingByClaimId(claim._id, userToken);
+              if (meetingResponse.success) {
+                meetingStatus = meetingResponse.data.status;
+                meetingStartTime = meetingResponse.data.startedAt;
+                meetingEndTime = meetingResponse.data.endedAt;
+                
+                // Calculate meeting duration if both start and end times exist
+                if (meetingStartTime && meetingEndTime) {
+                  const start = new Date(meetingStartTime);
+                  const end = new Date(meetingEndTime);
+                  const durationMs = end - start;
+                  const durationMinutes = Math.floor(durationMs / (1000 * 60));
+                  totalMeetingMinutes += durationMinutes;
+                }
+              }
+            } catch (error) {
+              // Meeting doesn't exist yet, that's okay
+              console.log(`No meeting found for claim ${claim._id}`);
+            }
+            
+            // Calculate duration for closed claims
+            let durationHours = null;
+            let exceedsSixHours = false;
+            if (claim.status === 'closed' && claim.completedAt) {
+              const createdDate = new Date(claim.createdAt);
+              const completedDate = new Date(claim.completedAt);
+              const durationMs = completedDate - createdDate;
+              durationHours = (durationMs / (1000 * 60 * 60)).toFixed(2); // Convert to hours
+              exceedsSixHours = durationHours > 6;
+            }
+            
+            return {
+              key: claim._id,
+              claimId: claim.claimId,
+              patientMobile: claim.patientMobile,
+              hospitalLocation: `${claim.hospitalCity}, ${claim.hospitalState}`,
+              status: claim.status,
+              created: new Date(claim.createdAt).toLocaleDateString('en-IN'),
+              createdAt: claim.createdAt,
+              completedAt: claim.completedAt,
+              durationHours: durationHours,
+              exceedsSixHours: exceedsSixHours,
+              doctorName: claim.doctorName,
+              doctorEmail: claim.doctorEmail,
+              meetingStatus: meetingStatus,
+              meetingStartTime: meetingStartTime,
+              meetingEndTime: meetingEndTime,
+            };
+          })
+        );
+        
+        setClaimsData(claimsWithMeetingStatus);
 
         // Calculate statistics
-        const total = claims.length;
-        const open = claims.filter(c => c.status === 'open').length;
-        const closed = claims.filter(c => c.status === 'closed').length;
-        setStatistics({ totalClaims: total, openClaims: open, closedClaims: closed });
+        const total = claimsWithMeetingStatus.length;
+        const open = claimsWithMeetingStatus.filter(c => c.status === 'open').length;
+        const closed = claimsWithMeetingStatus.filter(c => c.status === 'closed').length;
+        const totalHours = (totalMeetingMinutes / 60).toFixed(1);
+        const exceeding6Hours = claimsWithMeetingStatus.filter(c => c.exceedsSixHours).length;
+        
+        setStatistics({ 
+          totalClaims: total, 
+          openClaims: open, 
+          closedClaims: closed,
+          totalMeetingHours: totalHours,
+          claimsExceeding6Hours: exceeding6Hours
+        });
+        
+        if (showLoading) {
+          message.success('Claims refreshed successfully!');
+        }
       }
     } catch (error) {
       console.error('Error fetching claims:', error);
+      if (showLoading) {
+        message.error('Failed to refresh claims');
+      }
+    } finally {
+      if (showLoading) {
+        setRefreshing(false);
+      }
     }
+  };
+
+  const handleRefresh = () => {
+    fetchClaims(true);
   };
 
   const handleLogout = () => {
@@ -198,11 +281,39 @@ function Home() {
         handleClaimCancel();
         // Refresh claims list
         fetchClaims();
+      } else {
+        // Handle case where response is not successful
+        message.error(response.message || 'Failed to create claim. Please try again.');
       }
       setLoading(false);
     } catch (error) {
       console.error('Error creating claim:', error);
-      message.error(error.message || 'Failed to create claim. Please try again.');
+      
+      // Show detailed error message
+      let errorMessage = 'Failed to create claim. Please try again.';
+      
+      if (error.message) {
+        if (error.message.includes('Claim ID already exists')) {
+          errorMessage = 'This Claim ID already exists. Please use a different Claim ID.';
+        } else if (error.message.includes('required fields')) {
+          errorMessage = 'Please fill all required fields correctly.';
+        } else if (error.message.includes('token') || error.message.includes('authorization')) {
+          errorMessage = 'Session expired. Please login again.';
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          errorMessage = 'Network error. Please check your internet connection.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      message.error({
+        content: errorMessage,
+        duration: 5,
+        style: {
+          marginTop: '20vh',
+        },
+      });
+      
       setLoading(false);
     }
   };
@@ -377,6 +488,21 @@ function Home() {
       render: (text) => <Text style={{ color: '#000000' }}>{text}</Text>,
     },
     {
+      title: <span style={{ fontWeight: 700, color: '#000000' }}>Doctor</span>,
+      dataIndex: 'doctorName',
+      key: 'doctorName',
+      render: (doctorName, record) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <Text strong style={{ color: '#667eea', fontSize: '13px' }}>
+            {doctorName || 'N/A'}
+          </Text>
+          <Text style={{ color: '#6b7280', fontSize: '11px' }}>
+            {record.doctorEmail || 'N/A'}
+          </Text>
+        </div>
+      ),
+    },
+    {
       title: <span style={{ fontWeight: 700, color: '#000000' }}>Status</span>,
       dataIndex: 'status',
       key: 'status',
@@ -387,63 +513,167 @@ function Home() {
       ),
     },
     {
-      title: <span style={{ fontWeight: 700, color: '#000000' }}>Created</span>,
-      dataIndex: 'created',
-      key: 'created',
-      render: (text) => <Text style={{ color: '#6b7280' }}>{text}</Text>,
+      title: <span style={{ fontWeight: 700, color: '#000000' }}>Duration</span>,
+      dataIndex: 'durationHours',
+      key: 'durationHours',
+      render: (durationHours, record) => {
+        if (record.status !== 'closed' || !durationHours) {
+          return <Text style={{ color: '#9ca3af' }}>-</Text>;
+        }
+        
+        const hours = parseFloat(durationHours);
+        const color = hours <= 6 ? '#10b981' : '#ef4444'; // Green if <= 6 hours, Red if > 6 hours
+        const bgColor = hours <= 6 ? '#f0fdf4' : '#fef2f2';
+        
+        return (
+          <Tag 
+            color={hours <= 6 ? 'success' : 'error'} 
+            style={{ 
+              fontWeight: 600,
+              fontSize: '13px',
+              padding: '4px 12px',
+              borderRadius: '6px',
+              background: bgColor,
+              color: color,
+              border: `2px solid ${color}`
+            }}
+          >
+            {hours.toFixed(1)} hrs
+          </Tag>
+        );
+      },
+    },
+    {
+      title: <span style={{ fontWeight: 700, color: '#000000' }}>Claim Created</span>,
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (time) => {
+        if (!time) return <Text style={{ color: '#9ca3af' }}>-</Text>;
+        const date = new Date(time);
+        return (
+          <Text style={{ color: '#059669', fontSize: '12px' }}>
+            {date.toLocaleDateString('en-IN')}<br />
+            {date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        );
+      },
+    },
+    {
+      title: <span style={{ fontWeight: 700, color: '#000000' }}>Claim Completed</span>,
+      dataIndex: 'completedAt',
+      key: 'completedAt',
+      render: (time) => {
+        if (!time) return <Text style={{ color: '#9ca3af' }}>-</Text>;
+        const date = new Date(time);
+        return (
+          <Text style={{ color: '#dc2626', fontSize: '12px' }}>
+            {date.toLocaleDateString('en-IN')}<br />
+            {date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        );
+      },
     },
     {
       title: <span style={{ fontWeight: 700, color: '#000000' }}>Actions</span>,
       key: 'actions',
+      width: 350,
       fixed: 'right',
-      render: (_, record) => (
-        <Space size="small">
-          <Button
-            type="primary"
-            icon={<VideoCameraOutlined />}
-            onClick={() => handleJoinMeeting(record)}
-            loading={joiningMeetingId === record.key}
-            disabled={joiningMeetingId !== null && joiningMeetingId !== record.key}
-            style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              border: 'none',
-              borderRadius: '6px',
-              fontWeight: 600,
-              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
-            }}
-          >
-            Join
-          </Button>
-          <Button
-            icon={<CopyOutlined />}
-            onClick={() => handleCopyPatientLink(record)}
-            style={{
-              borderRadius: '6px',
-              border: '2px solid #667eea',
-              color: '#667eea',
-              fontWeight: 600,
-            }}
-            title="Copy Patient Link"
-          >
-            Copy Link
-          </Button>
-          <Button
-            type="default"
-            icon={<FilePdfOutlined />}
-            onClick={() => handleDownloadPDF(record)}
-            style={{
-              borderRadius: '6px',
-              border: '2px solid #ef4444',
-              color: '#ef4444',
-              fontWeight: 600,
-              background: '#ffffff',
-            }}
-            title="Download PDF Report"
-          >
-            PDF
-          </Button>
-        </Space>
-      ),
+      render: (_, record) => {
+        // Determine which button to show based on claim status and meeting status
+        const showJoinButton = record.status === 'open';
+        const showProgressButton = (record.status === 'open' && record.meetingStatus === 'meeting_completed') || record.status === 'in_progress';
+        const showClosedState = record.status === 'closed';
+
+        return (
+          <Space size="small">
+            {/* Show Progress button if meeting completed OR status is in_progress */}
+            {showProgressButton ? (
+              <Button
+                type="primary"
+                icon={<FileTextOutlined />}
+                onClick={() => navigate(`/claim-form?claimId=${record.key}`)}
+                style={{
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)',
+                }}
+              >
+                Progress
+              </Button>
+            ) : showJoinButton && !showProgressButton ? (
+              /* Show Join button for open claims without completed meeting */
+              <Button
+                type="primary"
+                icon={<VideoCameraOutlined />}
+                onClick={() => handleJoinMeeting(record)}
+                loading={joiningMeetingId === record.key}
+                disabled={joiningMeetingId !== null && joiningMeetingId !== record.key}
+                style={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                }}
+              >
+                Join
+              </Button>
+            ) : showClosedState ? (
+              /* Show disabled/completed state for closed claims */
+              <Button
+                type="default"
+                disabled
+                icon={<CheckCircleOutlined />}
+                style={{
+                  borderRadius: '6px',
+                  border: '2px solid #10b981',
+                  color: '#10b981',
+                  fontWeight: 600,
+                  background: '#f0fdf4',
+                }}
+              >
+                Completed
+              </Button>
+            ) : null}
+            
+            {/* Show Copy Link button only for open claims */}
+            {!showClosedState && (
+              <Button
+                icon={<CopyOutlined />}
+                onClick={() => handleCopyPatientLink(record)}
+                style={{
+                  borderRadius: '6px',
+                  border: '2px solid #667eea',
+                  color: '#667eea',
+                  fontWeight: 600,
+                }}
+                title="Copy Patient Link"
+              >
+                Copy Link
+              </Button>
+            )}
+            
+            {/* PDF button always available */}
+            <Button
+              type="default"
+              icon={<FilePdfOutlined />}
+              onClick={() => handleDownloadPDF(record)}
+              style={{
+                borderRadius: '6px',
+                border: '2px solid #ef4444',
+                color: '#ef4444',
+                fontWeight: 600,
+                background: '#ffffff',
+              }}
+              title="Download PDF Report"
+            >
+              PDF
+            </Button>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -458,15 +688,74 @@ function Home() {
         },
       }}
     >
-      <div style={{
+      <style>{`
+        @media (max-width: 768px) {
+          .responsive-container {
+            padding: 12px !important;
+          }
+          .responsive-card {
+            padding: 16px !important;
+          }
+          .responsive-title {
+            font-size: 20px !important;
+          }
+          .responsive-button {
+            height: 38px !important;
+            padding: 0 12px !important;
+            font-size: 14px !important;
+          }
+          .responsive-space .ant-space-item {
+            margin-bottom: 8px;
+          }
+          .hide-mobile-text .ant-btn span:not(.anticon) {
+            display: none;
+          }
+          .hide-mobile-text .ant-btn {
+            padding: 0 12px !important;
+          }
+          .ant-table-wrapper {
+            overflow-x: auto;
+          }
+          .table-header-responsive {
+            flex-direction: column;
+            align-items: flex-start !important;
+            gap: 12px;
+          }
+          .table-header-responsive > * {
+            width: 100%;
+          }
+        }
+        @media (max-width: 992px) {
+          .stats-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+        @media (max-width: 576px) {
+          .stats-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .filter-item {
+            min-width: 100% !important;
+            width: 100% !important;
+          }
+          .ant-modal {
+            max-width: calc(100vw - 32px) !important;
+            margin: 16px auto !important;
+          }
+          .responsive-title {
+            font-size: 18px !important;
+          }
+        }
+      `}</style>
+      <div className="responsive-container" style={{
         padding: '24px',
         minHeight: '100vh',
         background: 'transparent',
         position: 'relative'
       }}>
         {/* Header */}
-        <div className="animate-fade-in" style={{
-          maxWidth: '1200px',
+        <div className="animate-fade-in responsive-card" style={{
+          maxWidth: '100vw',
           margin: '0 auto 24px',
           background: '#ffffff',
           padding: '24px',
@@ -474,18 +763,22 @@ function Home() {
           border: '2px solid #667eea',
           boxShadow: '0 4px 12px rgba(102, 126, 234, 0.15)'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
-              Dashboard
-            </Title>
-            <Text style={{ color: '#6b7280', fontSize: '16px' }}>
-              <UserOutlined style={{ color: '#667eea', marginRight: '8px' }} />
-              {user.email || 'User'}
-            </Text>
-          </div>
-          <Space size="middle">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+            <div style={{ flex: '1 1 auto', minWidth: '200px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <img src={Logo} alt="Logo" style={{ objectFit: 'cover', borderRadius: '12px', width: '400PX', height: 'auto' }} />
+              <div>
+                <Title className="responsive-title" level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                  Dashboard
+                </Title>
+                <Text style={{ color: '#6b7280', fontSize: '16px' }}>
+                  <UserOutlined style={{ color: '#667eea', marginRight: '8px' }} />
+                  {user.email || 'User'}
+                </Text>
+              </div>
+            </div>
+          <Space className="responsive-space" size="middle" wrap>
             <Button
+              className="responsive-button hide-mobile-text"
               type="primary"
               icon={<FileAddOutlined />}
               onClick={showClaimModal}
@@ -510,9 +803,10 @@ function Home() {
                 e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.3)';
               }}
             >
-              Create Claim
+              <span>Create Claim</span>
             </Button>
             <Button
+              className="responsive-button hide-mobile-text"
               type="primary"
               icon={<PlusOutlined />}
               onClick={showModal}
@@ -537,9 +831,10 @@ function Home() {
                 e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.3)';
               }}
             >
-              Create Doctor
+              <span>Create Doctor</span>
             </Button>
             <Button
+              className="responsive-button hide-mobile-text"
               type="primary"
               icon={<LogoutOutlined />}
               onClick={handleLogout}
@@ -566,14 +861,14 @@ function Home() {
                 e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
               }}
             >
-              Logout
+              <span>Logout</span>
             </Button>
           </Space>
         </div>
 
         {/* Hero Header - Search and Filters */}
-        <div className="animate-slide-in" style={{
-          maxWidth: '1200px',
+        <div className="animate-slide-in responsive-card" style={{
+          maxWidth: '100vw',
           margin: '0 auto 24px',
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           padding: '32px',
@@ -607,7 +902,7 @@ function Home() {
             {/* Filters Row */}
             <Space size="middle" wrap style={{ width: '100%' }}>
               {/* Status Filter */}
-              <div style={{ minWidth: '250px' }}>
+              <div className="filter-item" style={{ minWidth: '250px', flex: '1 1 200px' }}>
                 <Text strong style={{ color: '#ffffff', display: 'block', marginBottom: '8px', fontSize: '14px' }}>
                   Status
                 </Text>
@@ -627,7 +922,7 @@ function Home() {
               </div>
 
               {/* Date Range Filter */}
-              <div style={{ minWidth: '300px' }}>
+              <div className="filter-item" style={{ minWidth: '300px', flex: '1 1 250px' }}>
                 <Text strong style={{ color: '#ffffff', display: 'block', marginBottom: '8px', fontSize: '14px' }}>
                   Date Range
                 </Text>
@@ -690,12 +985,12 @@ function Home() {
         </div>
 
         {/* Statistics Cards */}
-        <div style={{
-          maxWidth: '1200px',
+        <div className="stats-grid" style={{
+          maxWidth: '100vw',
           margin: '0 auto 24px',
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '24px'
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: '20px'
         }}>
           {/* Total Claims Card */}
           <Card
@@ -854,11 +1149,117 @@ function Home() {
               </Text>
             </Space>
           </Card>
+
+          {/* Total Meeting Hours Card */}
+          <Card
+            className="animate-fade-in"
+            style={{
+              borderRadius: '16px',
+              border: '2px solid #667eea',
+              background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)',
+              boxShadow: '0 4px 20px rgba(102, 126, 234, 0.15)',
+              transition: 'all 0.3s ease',
+              cursor: 'pointer',
+              animationDelay: '0.3s'
+            }}
+            hoverable
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-4px)';
+              e.currentTarget.style.boxShadow = '0 8px 30px rgba(102, 126, 234, 0.25)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 4px 20px rgba(102, 126, 234, 0.15)';
+            }}
+          >
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
+                  Total Meeting Time
+                </Text>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)'
+                }}>
+                  <ClockCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
+                </div>
+              </div>
+              <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                {statistics.totalMeetingHours} hrs
+              </Title>
+              <Text style={{ color: '#8b5cf6', fontSize: '12px', fontWeight: 600 }}>
+                ● Total video call time
+              </Text>
+            </Space>
+          </Card>
+
+          {/* Claims Exceeding 6 Hours Card */}
+          <Card
+            className="animate-fade-in"
+            style={{
+              borderRadius: '16px',
+              border: '2px solid #ef4444',
+              background: 'linear-gradient(135deg, #ffffff 0%, #fee2e2 100%)',
+              boxShadow: '0 4px 20px rgba(239, 68, 68, 0.15)',
+              transition: 'all 0.3s ease',
+              cursor: 'pointer',
+              animationDelay: '0.4s'
+            }}
+            hoverable
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-4px)';
+              e.currentTarget.style.boxShadow = '0 8px 30px rgba(239, 68, 68, 0.25)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 4px 20px rgba(239, 68, 68, 0.15)';
+            }}
+          >
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
+                  Claims &gt; 6 Hours
+                </Text>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                }}>
+                  <ClockCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
+                </div>
+              </div>
+              <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                {statistics.claimsExceeding6Hours}
+              </Title>
+              <Text style={{ color: '#ef4444', fontSize: '12px', fontWeight: 600 }}>
+                ● Exceeded time threshold
+              </Text>
+            </Space>
+          </Card>
         </div>
 
         {/* Claims Table */}
         <div style={{
-          maxWidth: '1200px',
+          maxWidth: '100vw',
           margin: '0 auto 24px',
         }}>
           <Card
@@ -870,10 +1271,28 @@ function Home() {
               boxShadow: '0 4px 20px rgba(102, 126, 234, 0.1)',
             }}
           >
-            <Title level={3} style={{ color: '#000000', marginBottom: '24px', fontWeight: 700 }}>
-              <FileTextOutlined style={{ marginRight: '12px', color: '#667eea' }} />
-              Claims List
-            </Title>
+            <div className="table-header-responsive" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                <FileTextOutlined style={{ marginRight: '12px', color: '#667eea' }} />
+                Claims List
+              </Title>
+              <Button
+                className="responsive-button"
+                type="primary"
+                icon={<ReloadOutlined />}
+                onClick={handleRefresh}
+                loading={refreshing}
+                style={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  height: '40px',
+                  fontWeight: 600,
+                }}
+              >
+                <span>Refresh</span>
+              </Button>
+            </div>
             <Table
               columns={columns}
               dataSource={claimsData}
@@ -881,15 +1300,17 @@ function Home() {
                 pageSize: 10,
                 showSizeChanger: true,
                 showTotal: (total) => `Total ${total} claims`,
-                style: { marginTop: '16px' }
+                style: { marginTop: '16px' },
+                responsive: true
               }}
-              scroll={{ x: 1200 }}
+              scroll={{ x: 1700 }}
               style={{
                 borderRadius: '8px',
               }}
               rowClassName={(record, index) => 
                 index % 2 === 0 ? 'table-row-light' : 'table-row-dark'
               }
+              size="middle"
             />
           </Card>
         </div>
@@ -897,7 +1318,7 @@ function Home() {
         {/* Admin Login Modal */}
         <Modal
           title={
-            <Title level={3} style={{ margin: 0, color: '#000000' }}>
+            <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000' }}>
               <LockOutlined style={{ marginRight: '12px', color: '#667eea' }} />
               Admin Login Required
             </Title>
@@ -1009,7 +1430,7 @@ function Home() {
         {/* Create Doctor Modal */}
         <Modal
           title={
-            <Title level={3} style={{ margin: 0, color: '#000000' }}>
+            <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000' }}>
               Create New Doctor
             </Title>
           }
@@ -1143,7 +1564,7 @@ function Home() {
         {/* Create Claim Modal - 2 Steps */}
         <Modal
           title={
-            <Title level={3} style={{ margin: 0, color: '#000000' }}>
+            <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000' }}>
               Create New Claim
             </Title>
           }

@@ -95,7 +95,7 @@ exports.updateMeetingStatus = async (req, res) => {
     
     if (status === 'ongoing' && !meeting.startedAt) {
       meeting.startedAt = new Date();
-    } else if (status === 'completed' && !meeting.endedAt) {
+    } else if ((status === 'completed' || status === 'meeting_completed') && !meeting.endedAt) {
       meeting.endedAt = new Date();
     }
 
@@ -109,5 +109,175 @@ exports.updateMeetingStatus = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// @desc    Complete meeting by room ID
+// @route   PUT /api/meetings/room/:roomId/complete
+// @access  Public (no auth required)
+exports.completeMeetingByRoomId = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+
+    console.log(`\n=== Complete Meeting Request ===`);
+    console.log(`Room ID: ${roomId}`);
+
+    // Find meeting and populate claimId
+    const meeting = await Meeting.findOne({ roomId });
+
+    if (!meeting) {
+      console.log('❌ Meeting not found!');
+      return res.status(404).json({ 
+        success: false,
+        message: 'Meeting not found' 
+      });
+    }
+
+    console.log(`✅ Found Meeting ID: ${meeting._id}`);
+    console.log(`📊 Previous Meeting Status: ${meeting.status}`);
+    console.log(`📋 Claim ID: ${meeting.claimId}`);
+
+    // Set meeting status to meeting_completed (waiting for claim form)
+    meeting.status = 'meeting_completed';
+    
+    if (!meeting.endedAt) {
+      meeting.endedAt = new Date();
+    }
+
+    await meeting.save();
+    console.log(`✅ Meeting status updated to: ${meeting.status}`);
+
+    // Update claim status to in_progress
+    const Claim = require('../models/Claim');
+    const claim = await Claim.findById(meeting.claimId);
+    
+    if (!claim) {
+      console.log('❌ Claim not found!');
+      return res.status(404).json({
+        success: false,
+        message: 'Claim not found'
+      });
+    }
+
+    console.log(`📊 Previous Claim Status: ${claim.status}`);
+    
+    if (claim.status === 'open') {
+      claim.status = 'in_progress';
+      await claim.save();
+      console.log(`✅ Claim status updated to: ${claim.status}`);
+    } else {
+      console.log(`⚠️ Claim status not changed (current: ${claim.status})`);
+    }
+
+    console.log(`✅ Meeting marked as completed successfully!`);
+    console.log(`===========================\n`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Meeting marked as completed and claim status updated',
+      data: {
+        meeting: {
+          _id: meeting._id,
+          roomId: meeting.roomId,
+          status: meeting.status,
+        },
+        claim: {
+          _id: claim._id,
+          claimId: claim.claimId,
+          status: claim.status,
+        }
+      },
+    });
+  } catch (error) {
+    console.error('❌ Error completing meeting:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+};
+
+// @desc    Get meeting by claim ID
+// @route   GET /api/meetings/claim/:claimId
+// @access  Private
+exports.getMeetingByClaimId = async (req, res) => {
+  try {
+    const { claimId } = req.params;
+
+    console.log(`\n=== Get Meeting by Claim ID ===`);
+    console.log(`Claim ID: ${claimId}`);
+
+    const meeting = await Meeting.findOne({ claimId })
+      .populate('claimId', 'claimId patientName')
+      .populate('doctorId', 'name email');
+
+    if (!meeting) {
+      console.log('Meeting not found for this claim');
+      return res.status(404).json({ 
+        success: false,
+        message: 'Meeting not found' 
+      });
+    }
+
+    console.log(`Found Meeting - Status: ${meeting.status}, Room ID: ${meeting.roomId}`);
+    console.log(`===========================\n`);
+
+    res.status(200).json({
+      success: true,
+      data: meeting,
+    });
+  } catch (error) {
+    console.error('Error getting meeting by claim ID:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// @desc    Start meeting by room ID (set startedAt timestamp)
+// @route   PUT /api/meetings/room/:roomId/start
+// @access  Public
+exports.startMeetingByRoomId = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+
+    console.log(`\n=== Start Meeting Request ===`);
+    console.log(`Room ID: ${roomId}`);
+
+    const meeting = await Meeting.findOne({ roomId });
+
+    if (!meeting) {
+      console.log('❌ Meeting not found!');
+      return res.status(404).json({ 
+        success: false,
+        message: 'Meeting not found' 
+      });
+    }
+
+    // Only set startedAt if meeting hasn't started yet
+    if (!meeting.startedAt && meeting.status === 'scheduled') {
+      meeting.startedAt = new Date();
+      meeting.status = 'ongoing';
+      await meeting.save();
+      
+      console.log(`✅ Meeting started at: ${meeting.startedAt}`);
+      console.log(`✅ Meeting status updated to: ${meeting.status}`);
+    } else {
+      console.log(`⚠️ Meeting already started at: ${meeting.startedAt || 'N/A'}`);
+    }
+
+    console.log(`===========================\n`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Meeting started successfully',
+      data: meeting,
+    });
+  } catch (error) {
+    console.error('❌ Error starting meeting:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };

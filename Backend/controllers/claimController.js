@@ -59,6 +59,8 @@ exports.createClaim = async (req, res) => {
       patientLanguage,
       documents,
       createdBy: req.user._id,
+      doctorName: req.user.name,
+      doctorEmail: req.user.email,
     });
 
     res.status(201).json({
@@ -133,6 +135,12 @@ exports.updateClaimStatus = async (req, res) => {
     }
 
     claim.status = status;
+    
+    // Set completedAt timestamp when claim is closed
+    if (status === 'closed' && !claim.completedAt) {
+      claim.completedAt = new Date();
+    }
+    
     await claim.save();
 
     res.status(200).json({
@@ -526,8 +534,23 @@ exports.submitClaimForm = async (req, res) => {
 
     // Update claim status to closed (completed)
     claim.status = 'closed';
+    
+    // Set completedAt timestamp
+    if (!claim.completedAt) {
+      claim.completedAt = new Date();
+    }
 
     await claim.save();
+
+    // Update meeting status to completed if exists
+    const Meeting = require('../models/Meeting');
+    const meeting = await Meeting.findOne({ claimId: claim._id });
+    if (meeting) {
+      meeting.status = 'completed';
+      meeting.claimFormSubmitted = true;
+      await meeting.save();
+      console.log(`Meeting status updated to completed`);
+    }
 
     console.log(`Form submitted successfully!`);
     console.log(`Documents uploaded: ${formDocuments.length}`);

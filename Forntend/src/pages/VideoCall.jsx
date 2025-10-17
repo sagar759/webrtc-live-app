@@ -3,7 +3,65 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { Button, Card, Typography, Space, Input, message, Spin } from 'antd';
 import { VideoCameraOutlined, AudioOutlined, AudioMutedOutlined, PhoneOutlined, CopyOutlined, ShareAltOutlined, CameraOutlined, EditOutlined, CheckOutlined, CloseOutlined, ClearOutlined, EnvironmentOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import io from 'socket.io-client';
-import { getMeetingByRoomId, uploadCapturedImage, uploadSignature, saveLocation, uploadRecording } from '../services/api';
+import { getMeetingByRoomId, uploadCapturedImage, uploadSignature, saveLocation, uploadRecording, completeMeetingByRoomId, startMeetingByRoomId } from '../services/api';
+import Logo from '../assets/Logo.jpeg';
+
+// Add global styles for animations and responsive design
+const globalStyles = `
+  @keyframes pulse {
+    0%, 100% {
+      opacity: 1;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.5);
+    }
+    50% {
+      opacity: 0.8;
+      box-shadow: 0 4px 24px rgba(239, 68, 68, 0.8);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .video-controls-container button {
+      height: 45px !important;
+      font-size: 13px !important;
+      padding: 0 14px !important;
+    }
+    
+    .video-controls-container button[style*="width: 50px"] {
+      width: 45px !important;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .video-controls-container {
+      padding: 12px 16px !important;
+      gap: 8px !important;
+    }
+    
+    .video-controls-container button {
+      height: 40px !important;
+      font-size: 12px !important;
+      padding: 0 12px !important;
+    }
+    
+    .video-controls-container button[style*="width: 50px"] {
+      width: 40px !important;
+    }
+
+    .video-controls-container button[style*="width: 120px"] {
+      width: 100px !important;
+    }
+  }
+`;
+
+// Inject styles into document
+if (typeof document !== 'undefined') {
+  const styleElement = document.getElementById('video-call-styles') || document.createElement('style');
+  styleElement.id = 'video-call-styles';
+  styleElement.textContent = globalStyles;
+  if (!document.getElementById('video-call-styles')) {
+    document.head.appendChild(styleElement);
+  }
+}
 
 const { Title, Text } = Typography;
 
@@ -236,6 +294,15 @@ const VideoCall = () => {
 
       setIsJoined(true);
       message.success('Joined meeting successfully!');
+
+      // Mark meeting as started
+      try {
+        await startMeetingByRoomId(roomId);
+        console.log('✅ Meeting marked as started');
+      } catch (error) {
+        console.error('Error marking meeting as started:', error);
+        // Don't show error to user, meeting can still proceed
+      }
 
       // Automatically capture location after joining
       if (claimId) {
@@ -810,7 +877,7 @@ const VideoCall = () => {
     }
   };
 
-  const leaveMeeting = () => {
+  const leaveMeeting = async () => {
     // Stop recording if active
     if (isRecording) {
       stopRecording();
@@ -824,6 +891,35 @@ const VideoCall = () => {
     }
     if (socket) {
       socket.disconnect();
+    }
+
+    // Mark meeting as completed if doctor
+    if (role === 'doctor' && roomId) {
+      try {
+        console.log(`\n📞 === LEAVING MEETING ===`);
+        console.log(`Room ID: ${roomId}`);
+        console.log(`Claim ID: ${claimId}`);
+        
+        const response = await completeMeetingByRoomId(roomId);
+        
+        console.log('✅ API Response:', response);
+        
+        if (response.success && response.data) {
+          console.log(`📊 Meeting Status: ${response.data.meeting?.status}`);
+          console.log(`📋 Claim Status: ${response.data.claim?.status}`);
+          message.success({
+            content: `Meeting completed! Claim status: ${response.data.claim?.status}`,
+            duration: 3,
+          });
+        } else {
+          message.success('Meeting completed successfully!');
+        }
+        
+        console.log(`=========================\n`);
+      } catch (error) {
+        console.error('❌ Error completing meeting:', error);
+        message.error('Failed to mark meeting as completed');
+      }
     }
 
     // Navigate to claim form if doctor, otherwise go to home
@@ -849,6 +945,9 @@ const VideoCall = () => {
           borderRadius: '16px',
           border: '2px solid #10b981',
         }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+            <img src={Logo} alt="Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '12px' }} />
+          </div>
           <Title level={3} style={{ color: '#000000', textAlign: 'center', marginBottom: '24px' }}>
             <VideoCameraOutlined style={{ color: '#10b981', marginRight: '12px' }} />
             Join Video Meeting
@@ -894,174 +993,239 @@ const VideoCall = () => {
 
   return (
     <div style={{
+      position: 'relative',
       minHeight: '100vh',
       background: '#000000',
-      padding: '20px',
+      overflow: 'hidden',
     }}>
-      <div style={{
-        maxWidth: '1400px',
-        margin: '0 auto',
-      }}>
-        {/* Videos */}
+      {/* Full Screen Remote Video (Background) */}
+      {remoteStream ? (
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: remoteStream ? '1fr 1fr' : '1fr',
-          gap: '20px',
-          marginBottom: '20px',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          background: '#1a1a1a',
+          zIndex: 1,
         }}>
-          {/* Local Video */}
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+            }}
+          />
+          {/* Remote Video Label */}
           <div style={{
-            position: 'relative',
-            background: '#1f2937',
-            borderRadius: '12px',
-            overflow: 'hidden',
-            aspectRatio: '16/9',
+            position: 'absolute',
+            top: '20px',
+            left: '20px',
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(10px)',
+            color: '#ffffff',
+            padding: '8px 16px',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: 500,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
           }}>
-            <video
-              ref={localVideoRef}
-              autoPlay
-              muted
-              playsInline
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                transform: 'scaleX(-1)',
-              }}
-            />
-            <div style={{
-              position: 'absolute',
-              bottom: '10px',
-              left: '10px',
-              background: 'rgba(0,0,0,0.7)',
-              color: '#ffffff',
-              padding: '5px 10px',
-              borderRadius: '6px',
-              fontSize: '14px',
-            }}>
-              You ({userName})
-            </div>
-            {role === 'doctor' && (
-              <Button
-                icon={<CameraOutlined />}
-                onClick={() => captureImage(localVideoRef, 'doctor')}
-                loading={capturing}
-                style={{
-                  position: 'absolute',
-                  top: '10px',
-                  right: '10px',
-                  background: 'rgba(16, 185, 129, 0.9)',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                }}
-              >
-                Capture My Image
-              </Button>
-            )}
+            🟢 Remote User
           </div>
-
-          {/* Remote Video */}
-          {remoteStream && (
-            <div style={{
-              position: 'relative',
-              background: '#1f2937',
-              borderRadius: '12px',
-              overflow: 'hidden',
-              aspectRatio: '16/9',
-            }}>
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                }}
-              />
-              <div style={{
-                position: 'absolute',
-                bottom: '10px',
-                left: '10px',
-                background: 'rgba(0,0,0,0.7)',
-                color: '#ffffff',
-                padding: '5px 10px',
-                borderRadius: '6px',
-                fontSize: '14px',
-              }}>
-                Remote User
-              </div>
-              {role === 'doctor' && (
-                <Button
-                  icon={<CameraOutlined />}
-                  onClick={() => captureImage(remoteVideoRef, 'patient')}
-                  loading={capturing}
-                  style={{
-                    position: 'absolute',
-                    top: '10px',
-                    right: '10px',
-                    background: 'rgba(16, 185, 129, 0.9)',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontWeight: 600,
-                  }}
-                >
-                  Capture Patient Image
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Meeting Info Bar */}
-        {role === 'doctor' && (
-          <div style={{
-            background: '#1f2937',
-            borderRadius: '12px',
-            padding: '16px 24px',
-            marginBottom: '20px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            border: '2px solid #10b981',
-          }}>
-            <div>
-              <Text style={{ color: '#10b981', fontSize: '14px', fontWeight: 600, display: 'block' }}>
-                Meeting Room
-              </Text>
-              <Text style={{ color: '#ffffff', fontSize: '12px' }}>
-                Room ID: {roomId}
-              </Text>
-            </div>
+          {/* Capture Patient Image Button */}
+          {role === 'doctor' && (
             <Button
-              type="primary"
-              icon={<CopyOutlined />}
-              onClick={copyPatientLink}
+              icon={<CameraOutlined />}
+              onClick={() => captureImage(remoteVideoRef, 'patient')}
+              loading={capturing}
               style={{
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                position: 'absolute',
+                top: '20px',
+                right: '20px',
+                background: 'rgba(16, 185, 129, 0.9)',
+                backdropFilter: 'blur(10px)',
+                color: '#ffffff',
                 border: 'none',
-                borderRadius: '8px',
-                height: '40px',
+                borderRadius: '10px',
                 fontWeight: 600,
-                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                height: '42px',
+                padding: '0 20px',
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)',
               }}
             >
-              Copy Patient Link
+              Capture Patient Image
             </Button>
-          </div>
-        )}
-
-        {/* Controls */}
+          )}
+        </div>
+      ) : (
+        /* Waiting for Remote User */
         <div style={{
-          background: '#1f2937',
-          borderRadius: '12px',
-          padding: '20px',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
           display: 'flex',
           justifyContent: 'center',
-          gap: '15px',
+          alignItems: 'center',
+          zIndex: 1,
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <Spin size="large" />
+            <Text style={{ 
+              color: '#ffffff', 
+              fontSize: '18px', 
+              display: 'block', 
+              marginTop: '20px',
+              fontWeight: 500,
+            }}>
+              Waiting for remote user to join...
+            </Text>
+          </div>
+        </div>
+      )}
+
+      {/* Picture-in-Picture Local Video (Small Overlay) */}
+      <div style={{
+        position: 'fixed',
+        bottom: '140px',
+        right: '20px',
+        width: 'clamp(180px, 25vw, 320px)',
+        aspectRatio: '16/9',
+        background: '#1f2937',
+        borderRadius: '16px',
+        overflow: 'hidden',
+        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
+        border: '3px solid rgba(16, 185, 129, 0.5)',
+        zIndex: 10,
+        transition: 'all 0.3s ease',
+      }}>
+        <video
+          ref={localVideoRef}
+          autoPlay
+          muted
+          playsInline
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: 'scaleX(-1)',
+          }}
+        />
+        {/* Local Video Label */}
+        <div style={{
+          position: 'absolute',
+          bottom: '8px',
+          left: '8px',
+          background: 'rgba(0, 0, 0, 0.7)',
+          backdropFilter: 'blur(8px)',
+          color: '#ffffff',
+          padding: '4px 10px',
+          borderRadius: '6px',
+          fontSize: '12px',
+          fontWeight: 500,
+        }}>
+          You ({userName})
+        </div>
+        {/* Capture My Image Button */}
+        {role === 'doctor' && (
+          <Button
+            icon={<CameraOutlined />}
+            onClick={() => captureImage(localVideoRef, 'doctor')}
+            loading={capturing}
+            size="small"
+            style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              background: 'rgba(16, 185, 129, 0.9)',
+              backdropFilter: 'blur(8px)',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 600,
+              fontSize: '11px',
+              padding: '2px 8px',
+              height: 'auto',
+              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
+            }}
+          >
+            Capture
+          </Button>
+        )}
+      </div>
+
+      {/* Meeting Info Bar - Top Right for Doctor */}
+      {role === 'doctor' && (
+        <div style={{
+          position: 'fixed',
+          top: '80px',
+          right: '20px',
+          background: 'rgba(31, 41, 55, 0.9)',
+          backdropFilter: 'blur(12px)',
+          borderRadius: '12px',
+          padding: '12px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          alignItems: 'flex-end',
+          border: '2px solid rgba(16, 185, 129, 0.5)',
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
+          zIndex: 10,
+          maxWidth: 'calc(100vw - 40px)',
+        }}>
+          <div style={{ textAlign: 'right' }}>
+            <Text style={{ color: '#10b981', fontSize: '12px', fontWeight: 600, display: 'block' }}>
+              Meeting Room
+            </Text>
+            <Text style={{ color: '#ffffff', fontSize: '11px' }}>
+              Room ID: {roomId}
+            </Text>
+          </div>
+          <Button
+            type="primary"
+            icon={<CopyOutlined />}
+            onClick={copyPatientLink}
+            size="small"
+            style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              border: 'none',
+              borderRadius: '8px',
+              height: '36px',
+              fontWeight: 600,
+              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+              fontSize: '12px',
+            }}
+          >
+            Copy Patient Link
+          </Button>
+        </div>
+      )}
+
+      {/* Controls - Bottom Fixed */}
+      <div 
+        className="video-controls-container"
+        style={{
+          position: 'fixed',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(31, 41, 55, 0.95)',
+          backdropFilter: 'blur(16px)',
+          borderRadius: '16px',
+          padding: '16px 24px',
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          gap: '12px',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+          border: '2px solid rgba(16, 185, 129, 0.3)',
+          zIndex: 10,
+          maxWidth: 'calc(100vw - 40px)',
         }}>
           <Button
             size="large"
@@ -1182,117 +1346,116 @@ const VideoCall = () => {
             </>
           )}
 
-          <Button
-            size="large"
-            danger
-            icon={<PhoneOutlined style={{ transform: 'rotate(135deg)' }} />}
-            onClick={leaveMeeting}
-            style={{
-              borderRadius: '8px',
-              height: '50px',
-              width: '120px',
-              fontWeight: 600,
-            }}
-          >
-            Leave
-          </Button>
-        </div>
-
-        {/* Signature Pad Modal */}
-        {showSignaturePad && (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.8)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 1000,
-          }}>
-            <Card style={{
-              width: '90%',
-              maxWidth: '600px',
-              borderRadius: '16px',
-              border: '2px solid #10b981',
-            }}>
-              <Title level={4} style={{ marginBottom: '16px', color: '#000000' }}>
-                ✍️ {signatureType === 'doctor' ? 'Doctor Signature' : 'Patient Signature'}
-              </Title>
-              
-              <Text style={{ display: 'block', marginBottom: '16px', color: '#6b7280' }}>
-                Draw your signature below using mouse or touch:
-              </Text>
-
-              <div style={{
-                border: '2px dashed #10b981',
-                borderRadius: '8px',
-                background: '#ffffff',
-                marginBottom: '16px',
-                cursor: 'crosshair',
-              }}>
-                <canvas
-                  ref={signatureCanvasRef}
-                  width={560}
-                  height={200}
-                  onMouseDown={startDrawing}
-                  onMouseMove={draw}
-                  onMouseUp={stopDrawing}
-                  onMouseLeave={stopDrawing}
-                  onTouchStart={startDrawing}
-                  onTouchMove={draw}
-                  onTouchEnd={stopDrawing}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    height: '200px',
-                  }}
-                />
-              </div>
-
-              <Space size="middle" style={{ width: '100%', justifyContent: 'flex-end' }}>
-                <Button
-                  icon={<ClearOutlined />}
-                  onClick={clearSignature}
-                  style={{
-                    borderRadius: '8px',
-                    height: '40px',
-                  }}
-                >
-                  Clear
-                </Button>
-                <Button
-                  icon={<CloseOutlined />}
-                  onClick={closeSignaturePad}
-                  style={{
-                    borderRadius: '8px',
-                    height: '40px',
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<CheckOutlined />}
-                  onClick={saveSignature}
-                  loading={loading}
-                  style={{
-                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    height: '40px',
-                    fontWeight: 600,
-                  }}
-                >
-                  Save Signature
-                </Button>
-              </Space>
-            </Card>
-          </div>
-        )}
+        <Button
+          size="large"
+          danger
+          icon={<PhoneOutlined style={{ transform: 'rotate(135deg)' }} />}
+          onClick={leaveMeeting}
+          style={{
+            borderRadius: '8px',
+            height: '50px',
+            width: '120px',
+            fontWeight: 600,
+          }}
+        >
+          Leave
+        </Button>
       </div>
+
+      {/* Signature Pad Modal */}
+      {showSignaturePad && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.8)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000,
+        }}>
+          <Card style={{
+            width: '90%',
+            maxWidth: '600px',
+            borderRadius: '16px',
+            border: '2px solid #10b981',
+          }}>
+            <Title level={4} style={{ marginBottom: '16px', color: '#000000' }}>
+              ✍️ {signatureType === 'doctor' ? 'Doctor Signature' : 'Patient Signature'}
+            </Title>
+            
+            <Text style={{ display: 'block', marginBottom: '16px', color: '#6b7280' }}>
+              Draw your signature below using mouse or touch:
+            </Text>
+
+            <div style={{
+              border: '2px dashed #10b981',
+              borderRadius: '8px',
+              background: '#ffffff',
+              marginBottom: '16px',
+              cursor: 'crosshair',
+            }}>
+              <canvas
+                ref={signatureCanvasRef}
+                width={560}
+                height={200}
+                onMouseDown={startDrawing}
+                onMouseMove={draw}
+                onMouseUp={stopDrawing}
+                onMouseLeave={stopDrawing}
+                onTouchStart={startDrawing}
+                onTouchMove={draw}
+                onTouchEnd={stopDrawing}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  height: '200px',
+                }}
+              />
+            </div>
+
+            <Space size="middle" style={{ width: '100%', justifyContent: 'flex-end' }}>
+              <Button
+                icon={<ClearOutlined />}
+                onClick={clearSignature}
+                style={{
+                  borderRadius: '8px',
+                  height: '40px',
+                }}
+              >
+                Clear
+              </Button>
+              <Button
+                icon={<CloseOutlined />}
+                onClick={closeSignaturePad}
+                style={{
+                  borderRadius: '8px',
+                  height: '40px',
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="primary"
+                icon={<CheckOutlined />}
+                onClick={saveSignature}
+                loading={loading}
+                style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  height: '40px',
+                  fontWeight: 600,
+                }}
+              >
+                Save Signature
+              </Button>
+            </Space>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };
