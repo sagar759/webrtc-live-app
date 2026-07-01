@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://api.stechooze.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:5000/api';
 
 // Admin Login
 export const adminLogin = async (email, password) => {
@@ -74,7 +74,7 @@ export const doctorLogin = async (email, password) => {
 export const createClaim = async (claimData, files, token) => {
   try {
     const formData = new FormData();
-    
+
     // Append claim data fields FIRST (important for multer)
     if (claimData) {
       Object.keys(claimData).forEach(key => {
@@ -118,7 +118,7 @@ export const createClaim = async (claimData, files, token) => {
     if (!response.ok) {
       // Extract error message from response
       const errorMsg = data.message || data.error || 'Failed to create claim';
-      
+
       // Check for specific error types
       if (response.status === 400) {
         if (data.missingFields && data.missingFields.length > 0) {
@@ -132,7 +132,7 @@ export const createClaim = async (claimData, files, token) => {
       } else if (response.status >= 500) {
         throw new Error('Server error: Please try again later');
       }
-      
+
       throw new Error(errorMsg);
     }
 
@@ -410,7 +410,7 @@ export const saveLocation = async (claimId, locationType, userName, latitude, lo
     const headers = {
       'Content-Type': 'application/json',
     };
-    
+
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }

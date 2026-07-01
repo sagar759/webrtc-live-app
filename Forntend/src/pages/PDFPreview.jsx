@@ -16,7 +16,7 @@ const PDFPreview = () => {
   useEffect(() => {
     if (claimId) {
       // Set PDF URL
-      const url = `https://api.stechooze.com/api/claims/${claimId}/pdf`;
+      const url = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/claims/${claimId}/pdf`;
       setPdfUrl(url);
       setLoading(false);
     } else {
@@ -28,7 +28,7 @@ const PDFPreview = () => {
   const handleDownloadPDF = () => {
     try {
       message.loading({ content: 'Downloading PDF...', key: 'download' });
-      
+
       // Create download link
       const link = document.createElement('a');
       link.href = pdfUrl;
@@ -37,7 +37,7 @@ const PDFPreview = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       message.success({ content: 'PDF downloaded successfully!', key: 'download', duration: 2 });
     } catch (error) {
       console.error('Error downloading PDF:', error);

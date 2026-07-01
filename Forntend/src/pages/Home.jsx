@@ -52,7 +52,7 @@ function Home() {
     if (showLoading) {
       setRefreshing(true);
     }
-    
+
     try {
       const response = await getAllClaims(userToken);
       if (response.success) {
@@ -69,7 +69,7 @@ function Home() {
                 meetingStatus = meetingResponse.data.status;
                 meetingStartTime = meetingResponse.data.startedAt;
                 meetingEndTime = meetingResponse.data.endedAt;
-                
+
                 // Calculate meeting duration if both start and end times exist
                 if (meetingStartTime && meetingEndTime) {
                   const start = new Date(meetingStartTime);
@@ -83,7 +83,7 @@ function Home() {
               // Meeting doesn't exist yet, that's okay
               console.log(`No meeting found for claim ${claim._id}`);
             }
-            
+
             // Calculate duration for closed claims
             let durationHours = null;
             let exceedsSixHours = false;
@@ -94,7 +94,7 @@ function Home() {
               durationHours = (durationMs / (1000 * 60 * 60)).toFixed(2); // Convert to hours
               exceedsSixHours = durationHours > 6;
             }
-            
+
             return {
               key: claim._id,
               claimId: claim.claimId,
@@ -114,7 +114,7 @@ function Home() {
             };
           })
         );
-        
+
         setClaimsData(claimsWithMeetingStatus);
 
         // Calculate statistics
@@ -123,15 +123,15 @@ function Home() {
         const closed = claimsWithMeetingStatus.filter(c => c.status === 'closed').length;
         const totalHours = (totalMeetingMinutes / 60).toFixed(1);
         const exceeding6Hours = claimsWithMeetingStatus.filter(c => c.exceedsSixHours).length;
-        
-        setStatistics({ 
-          totalClaims: total, 
-          openClaims: open, 
+
+        setStatistics({
+          totalClaims: total,
+          openClaims: open,
           closedClaims: closed,
           totalMeetingHours: totalHours,
           claimsExceeding6Hours: exceeding6Hours
         });
-        
+
         if (showLoading) {
           message.success('Claims refreshed successfully!');
         }
@@ -180,7 +180,7 @@ function Home() {
     setLoading(true);
     try {
       const response = await adminLogin(values.email, values.password);
-      
+
       if (response.success) {
         setAdminToken(response.data.token);
         setIsAdminLoggedIn(true);
@@ -213,7 +213,7 @@ function Home() {
     setLoading(true);
     try {
       const response = await registerDoctor(values, adminToken);
-      
+
       if (response.success) {
         message.success('Doctor created successfully!');
         setIsModalOpen(false);
@@ -231,7 +231,7 @@ function Home() {
       // Validate and get values from step 1
       const values = await claimForm.validateFields();
       console.log('Step 1 values validated and saved:', values);
-      
+
       // Store step 1 data before moving to step 2
       setStep1Data(values);
       setCurrentStep(1);
@@ -264,7 +264,7 @@ function Home() {
         hospitalState: step1Data.hospitalState,
         patientLanguage: step1Data.patientLanguage,
       };
-      
+
       // Debug: Log what we're sending
       console.log('=== CLAIM FORM DEBUG ===');
       console.log('Step 1 saved data:', step1Data);
@@ -272,10 +272,10 @@ function Home() {
       console.log('Files to upload:', fileList);
       console.log('User token exists:', !!userToken);
       console.log('=======================');
-      
+
       // Call API to create claim with files
       const response = await createClaim(claimData, fileList, userToken);
-      
+
       if (response.success) {
         message.success('Claim created successfully!');
         handleClaimCancel();
@@ -288,10 +288,10 @@ function Home() {
       setLoading(false);
     } catch (error) {
       console.error('Error creating claim:', error);
-      
+
       // Show detailed error message
       let errorMessage = 'Failed to create claim. Please try again.';
-      
+
       if (error.message) {
         if (error.message.includes('Claim ID already exists')) {
           errorMessage = 'This Claim ID already exists. Please use a different Claim ID.';
@@ -305,7 +305,7 @@ function Home() {
           errorMessage = error.message;
         }
       }
-      
+
       message.error({
         content: errorMessage,
         duration: 5,
@@ -313,7 +313,7 @@ function Home() {
           marginTop: '20vh',
         },
       });
-      
+
       setLoading(false);
     }
   };
@@ -382,11 +382,11 @@ function Home() {
       setJoiningMeetingId(record.key);
       // Create or get existing meeting for this claim
       const response = await createMeeting(record.key, userToken);
-      
+
       if (response.success) {
         const { roomId } = response.data;
         message.success(`Joining meeting for Claim ${record.claimId}`);
-        
+
         // Navigate to video call page with roomId
         navigate(`/meeting/${roomId}?role=doctor`);
       }
@@ -401,7 +401,7 @@ function Home() {
     try {
       // Create or get existing meeting for this claim
       const response = await createMeeting(record.key, userToken);
-      
+
       if (response.success) {
         const { patientLink } = response.data;
         // Copy to clipboard
@@ -417,10 +417,10 @@ function Home() {
   const handleDownloadPDF = async (record) => {
     try {
       message.loading({ content: 'Generating PDF...', key: 'pdf' });
-      
+
       // Download PDF directly
-      const pdfUrl = `https://api.stechooze.com/api/claims/${record.claimId}/pdf`;
-      
+      const pdfUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/claims/${record.claimId}/pdf`;
+
       // Create temporary link and trigger download
       const link = document.createElement('a');
       link.href = pdfUrl;
@@ -429,7 +429,7 @@ function Home() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       message.success({ content: 'PDF download started!', key: 'pdf', duration: 2 });
     } catch (error) {
       console.error('Error downloading PDF:', error);
@@ -520,15 +520,15 @@ function Home() {
         if (record.status !== 'closed' || !durationHours) {
           return <Text style={{ color: '#9ca3af' }}>-</Text>;
         }
-        
+
         const hours = parseFloat(durationHours);
         const color = hours <= 6 ? '#10b981' : '#ef4444'; // Green if <= 6 hours, Red if > 6 hours
         const bgColor = hours <= 6 ? '#f0fdf4' : '#fef2f2';
-        
+
         return (
-          <Tag 
-            color={hours <= 6 ? 'success' : 'error'} 
-            style={{ 
+          <Tag
+            color={hours <= 6 ? 'success' : 'error'}
+            style={{
               fontWeight: 600,
               fontSize: '13px',
               padding: '4px 12px',
@@ -637,7 +637,7 @@ function Home() {
                 Completed
               </Button>
             ) : null}
-            
+
             {/* Show Copy Link button only for open claims */}
             {!showClosedState && (
               <Button
@@ -654,7 +654,7 @@ function Home() {
                 Copy Link
               </Button>
             )}
-            
+
             {/* PDF button always available */}
             <Button
               type="default"
@@ -776,1074 +776,1074 @@ function Home() {
                 </Text>
               </div>
             </div>
-          <Space className="responsive-space" size="middle" wrap>
-            <Button
-              className="responsive-button hide-mobile-text"
-              type="primary"
-              icon={<FileAddOutlined />}
-              onClick={showClaimModal}
-              size="large"
-              style={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                border: 'none',
-                borderRadius: '8px',
-                height: '45px',
-                padding: '0 24px',
-                fontSize: '16px',
-                fontWeight: 600,
-                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.3)';
-              }}
-            >
-              <span>Create Claim</span>
-            </Button>
-            <Button
-              className="responsive-button hide-mobile-text"
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={showModal}
-              size="large"
-              style={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                border: 'none',
-                borderRadius: '8px',
-                height: '45px',
-                padding: '0 24px',
-                fontSize: '16px',
-                fontWeight: 600,
-                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.3)';
-              }}
-            >
-              <span>Create Doctor</span>
-            </Button>
-            <Button
-              className="responsive-button hide-mobile-text"
-              type="primary"
-              icon={<LogoutOutlined />}
-              onClick={handleLogout}
-              size="large"
-              style={{
-                background: '#000000',
-                border: 'none',
-                borderRadius: '8px',
-                height: '45px',
-                padding: '0 24px',
-                fontSize: '16px',
-                fontWeight: 600,
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#1f2937';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#000000';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
-              }}
-            >
-              <span>Logout</span>
-            </Button>
-          </Space>
-        </div>
-
-        {/* Hero Header - Search and Filters */}
-        <div className="animate-slide-in responsive-card" style={{
-          maxWidth: '100vw',
-          margin: '0 auto 24px',
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          padding: '32px',
-          borderRadius: '16px',
-          boxShadow: '0 10px 40px rgba(102, 126, 234, 0.2)',
-        }}>
-          <Title level={3} style={{ color: '#ffffff', marginBottom: '24px', fontWeight: 700 }}>
-            <FilterOutlined style={{ marginRight: '12px' }} />
-            Filter Claims
-          </Title>
-          
-          <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            {/* Search Input */}
-            <Input
-              size="large"
-              placeholder="Search by Claim ID, Patient Name, or Mobile Number..."
-              prefix={<SearchOutlined style={{ color: '#667eea', fontSize: '18px' }} />}
-              value={searchText}
-              onChange={(e) => handleSearch(e.target.value)}
-              style={{
-                borderRadius: '8px',
-                border: '2px solid #ffffff',
-                background: '#ffffff',
-                fontSize: '16px',
-                padding: '12px 16px',
-                height: '50px'
-              }}
-              allowClear
-            />
-
-            {/* Filters Row */}
-            <Space size="middle" wrap style={{ width: '100%' }}>
-              {/* Status Filter */}
-              <div className="filter-item" style={{ minWidth: '250px', flex: '1 1 200px' }}>
-                <Text strong style={{ color: '#ffffff', display: 'block', marginBottom: '8px', fontSize: '14px' }}>
-                  Status
-                </Text>
-                <Select
-                  size="large"
-                  value={statusFilter}
-                  onChange={handleStatusChange}
-                  style={{ width: '100%', borderRadius: '8px' }}
-                  options={[
-                    { label: 'All Claims', value: 'all' },
-                    { label: 'Open', value: 'open' },
-                    { label: 'Closed', value: 'closed' },
-                    { label: 'Pending', value: 'pending' },
-                    { label: 'In Progress', value: 'in_progress' },
-                  ]}
-                />
-              </div>
-
-              {/* Date Range Filter */}
-              <div className="filter-item" style={{ minWidth: '300px', flex: '1 1 250px' }}>
-                <Text strong style={{ color: '#ffffff', display: 'block', marginBottom: '8px', fontSize: '14px' }}>
-                  Date Range
-                </Text>
-                <RangePicker
-                  size="large"
-                  value={dateRange}
-                  onChange={handleDateRangeChange}
-                  style={{ width: '100%', borderRadius: '8px' }}
-                  format="DD/MM/YYYY"
-                  placeholder={['Start Date', 'End Date']}
-                />
-              </div>
-
-              {/* Clear Filters Button */}
-              <div style={{ marginTop: '28px' }}>
-                <Button
-                  size="large"
-                  onClick={handleClearFilters}
-                  style={{
-                    background: '#ffffff',
-                    color: '#667eea',
-                    border: '2px solid #ffffff',
-                    borderRadius: '8px',
-                    height: '40px',
-                    padding: '0 24px',
-                    fontWeight: 600,
-                    transition: 'all 0.3s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f0fdf4';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#ffffff';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
-                >
-                  Clear Filters
-                </Button>
-              </div>
-            </Space>
-
-            {/* Active Filters Display */}
-            {(searchText || statusFilter !== 'all' || (dateRange && dateRange[0])) && (
-              <div style={{
-                background: 'rgba(255, 255, 255, 0.2)',
-                padding: '12px 16px',
-                borderRadius: '8px',
-                border: '1px solid rgba(255, 255, 255, 0.3)'
-              }}>
-                <Text strong style={{ color: '#ffffff', fontSize: '14px' }}>
-                  Active Filters: 
-                  {searchText && ` Search: "${searchText}"`}
-                  {statusFilter !== 'all' && ` | Status: ${statusFilter}`}
-                  {dateRange && dateRange[0] && ` | Date Range Selected`}
-                </Text>
-              </div>
-            )}
-          </Space>
-        </div>
-
-        {/* Statistics Cards */}
-        <div className="stats-grid" style={{
-          maxWidth: '100vw',
-          margin: '0 auto 24px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: '20px'
-        }}>
-          {/* Total Claims Card */}
-          <Card
-            className="animate-fade-in"
-            style={{
-              borderRadius: '16px',
-              border: '2px solid #667eea',
-              background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)',
-              boxShadow: '0 4px 20px rgba(102, 126, 234, 0.15)',
-              transition: 'all 0.3s ease',
-              cursor: 'pointer'
-            }}
-            hoverable
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-4px)';
-              e.currentTarget.style.boxShadow = '0 8px 30px rgba(16, 185, 129, 0.25)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 20px rgba(16, 185, 129, 0.15)';
-            }}
-          >
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
-                  Total Claims
-                </Text>
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
-                }}>
-                  <FileTextOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
-                </div>
-              </div>
-              <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
-                {statistics.totalClaims}
-              </Title>
-              <Text style={{ color: '#667eea', fontSize: '12px', fontWeight: 600 }}>
-                ● All time claims
-              </Text>
-            </Space>
-          </Card>
-
-          {/* Open Claims Card */}
-          <Card
-            className="animate-fade-in"
-            style={{
-              borderRadius: '16px',
-              border: '2px solid #667eea',
-              background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)',
-              boxShadow: '0 4px 20px rgba(102, 126, 234, 0.15)',
-              transition: 'all 0.3s ease',
-              cursor: 'pointer',
-              animationDelay: '0.1s'
-            }}
-            hoverable
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-4px)';
-              e.currentTarget.style.boxShadow = '0 8px 30px rgba(16, 185, 129, 0.25)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 20px rgba(16, 185, 129, 0.15)';
-            }}
-          >
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
-                  Open Claims
-                </Text>
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(245, 158, 11, 0.3)'
-                }}>
-                  <CheckCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
-                </div>
-              </div>
-              <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
-                {statistics.openClaims}
-              </Title>
-              <Text style={{ color: '#f59e0b', fontSize: '12px', fontWeight: 600 }}>
-                ● Pending resolution
-              </Text>
-            </Space>
-          </Card>
-
-          {/* Closed Claims Card */}
-          <Card
-            className="animate-fade-in"
-            style={{
-              borderRadius: '16px',
-              border: '2px solid #667eea',
-              background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)',
-              boxShadow: '0 4px 20px rgba(102, 126, 234, 0.15)',
-              transition: 'all 0.3s ease',
-              cursor: 'pointer',
-              animationDelay: '0.2s'
-            }}
-            hoverable
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-4px)';
-              e.currentTarget.style.boxShadow = '0 8px 30px rgba(16, 185, 129, 0.25)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 20px rgba(16, 185, 129, 0.15)';
-            }}
-          >
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
-                  Closed Claims
-                </Text>
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  background: 'linear-gradient(135deg, #000000 0%, #1f2937 100%)',
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
-                }}>
-                  <CloseCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
-                </div>
-              </div>
-              <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
-                {statistics.closedClaims}
-              </Title>
-              <Text style={{ color: '#059669', fontSize: '12px', fontWeight: 600 }}>
-                ● Successfully resolved
-              </Text>
-            </Space>
-          </Card>
-
-          {/* Total Meeting Hours Card */}
-          <Card
-            className="animate-fade-in"
-            style={{
-              borderRadius: '16px',
-              border: '2px solid #667eea',
-              background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)',
-              boxShadow: '0 4px 20px rgba(102, 126, 234, 0.15)',
-              transition: 'all 0.3s ease',
-              cursor: 'pointer',
-              animationDelay: '0.3s'
-            }}
-            hoverable
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-4px)';
-              e.currentTarget.style.boxShadow = '0 8px 30px rgba(102, 126, 234, 0.25)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 20px rgba(102, 126, 234, 0.15)';
-            }}
-          >
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
-                  Total Meeting Time
-                </Text>
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)'
-                }}>
-                  <ClockCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
-                </div>
-              </div>
-              <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
-                {statistics.totalMeetingHours} hrs
-              </Title>
-              <Text style={{ color: '#8b5cf6', fontSize: '12px', fontWeight: 600 }}>
-                ● Total video call time
-              </Text>
-            </Space>
-          </Card>
-
-          {/* Claims Exceeding 6 Hours Card */}
-          <Card
-            className="animate-fade-in"
-            style={{
-              borderRadius: '16px',
-              border: '2px solid #ef4444',
-              background: 'linear-gradient(135deg, #ffffff 0%, #fee2e2 100%)',
-              boxShadow: '0 4px 20px rgba(239, 68, 68, 0.15)',
-              transition: 'all 0.3s ease',
-              cursor: 'pointer',
-              animationDelay: '0.4s'
-            }}
-            hoverable
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-4px)';
-              e.currentTarget.style.boxShadow = '0 8px 30px rgba(239, 68, 68, 0.25)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 20px rgba(239, 68, 68, 0.15)';
-            }}
-          >
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
-                  Claims &gt; 6 Hours
-                </Text>
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
-                }}>
-                  <ClockCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
-                </div>
-              </div>
-              <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
-                {statistics.claimsExceeding6Hours}
-              </Title>
-              <Text style={{ color: '#ef4444', fontSize: '12px', fontWeight: 600 }}>
-                ● Exceeded time threshold
-              </Text>
-            </Space>
-          </Card>
-        </div>
-
-        {/* Claims Table */}
-        <div style={{
-          maxWidth: '100vw',
-          margin: '0 auto 24px',
-        }}>
-          <Card
-            className="animate-fade-in"
-            style={{
-              borderRadius: '16px',
-              border: '2px solid #667eea',
-              background: '#ffffff',
-              boxShadow: '0 4px 20px rgba(102, 126, 234, 0.1)',
-            }}
-          >
-            <div className="table-header-responsive" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
-                <FileTextOutlined style={{ marginRight: '12px', color: '#667eea' }} />
-                Claims List
-              </Title>
+            <Space className="responsive-space" size="middle" wrap>
               <Button
-                className="responsive-button"
+                className="responsive-button hide-mobile-text"
                 type="primary"
-                icon={<ReloadOutlined />}
-                onClick={handleRefresh}
-                loading={refreshing}
+                icon={<FileAddOutlined />}
+                onClick={showClaimModal}
+                size="large"
                 style={{
                   background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                   border: 'none',
                   borderRadius: '8px',
-                  height: '40px',
+                  height: '45px',
+                  padding: '0 24px',
+                  fontSize: '16px',
                   fontWeight: 600,
+                  boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.3)';
                 }}
               >
-                <span>Refresh</span>
+                <span>Create Claim</span>
               </Button>
-            </div>
-            <Table
-              columns={columns}
-              dataSource={claimsData}
-              pagination={{
-                pageSize: 10,
-                showSizeChanger: true,
-                showTotal: (total) => `Total ${total} claims`,
-                style: { marginTop: '16px' },
-                responsive: true
-              }}
-              scroll={{ x: 1700 }}
-              style={{
-                borderRadius: '8px',
-              }}
-              rowClassName={(record, index) => 
-                index % 2 === 0 ? 'table-row-light' : 'table-row-dark'
-              }
-              size="middle"
-            />
-          </Card>
-        </div>
-
-        {/* Admin Login Modal */}
-        <Modal
-          title={
-            <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000' }}>
-              <LockOutlined style={{ marginRight: '12px', color: '#667eea' }} />
-              Admin Login Required
-            </Title>
-          }
-          open={isAdminLoginModalOpen}
-          onCancel={handleAdminLoginCancel}
-          footer={null}
-          width={450}
-          centered
-          styles={{
-            header: {
-              borderBottom: '2px solid #667eea',
-              paddingBottom: '16px'
-            }
-          }}
-        >
-          <div style={{ textAlign: 'center', marginBottom: '24px', marginTop: '16px' }}>
-            <Text style={{ color: '#6b7280', fontSize: '14px' }}>
-              Only admin can create doctors. Please login with admin credentials.
-            </Text>
+              <Button
+                className="responsive-button hide-mobile-text"
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={showModal}
+                size="large"
+                style={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  height: '45px',
+                  padding: '0 24px',
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.3)';
+                }}
+              >
+                <span>Create Doctor</span>
+              </Button>
+              <Button
+                className="responsive-button hide-mobile-text"
+                type="primary"
+                icon={<LogoutOutlined />}
+                onClick={handleLogout}
+                size="large"
+                style={{
+                  background: '#000000',
+                  border: 'none',
+                  borderRadius: '8px',
+                  height: '45px',
+                  padding: '0 24px',
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#1f2937';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#000000';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+                }}
+              >
+                <span>Logout</span>
+              </Button>
+            </Space>
           </div>
 
-          <Form
-            form={adminLoginForm}
-            layout="vertical"
-            onFinish={handleAdminLogin}
-          >
-            <Form.Item
-              label={<span style={{ color: '#000000', fontWeight: 600 }}>Admin Email</span>}
-              name="email"
-              rules={[
-                {
-                  required: true,
-                  message: 'Please input admin email!',
-                },
-                {
-                  type: 'email',
-                  message: 'Please enter a valid email!',
-                },
-              ]}
-            >
-              <Input
-                prefix={<UserOutlined style={{ color: '#667eea' }} />}
-                placeholder="Enter admin email"
-                size="large"
-                style={{
-                  borderRadius: '8px',
-                  border: '2px solid #e5e7eb',
-                }}
-              />
-            </Form.Item>
-
-            <Form.Item
-              label={<span style={{ color: '#000000', fontWeight: 600 }}>Password</span>}
-              name="password"
-              rules={[
-                {
-                  required: true,
-                  message: 'Please input password!',
-                },
-              ]}
-            >
-              <Input.Password
-                prefix={<LockOutlined style={{ color: '#667eea' }} />}
-                placeholder="Enter password"
-                size="large"
-                style={{
-                  borderRadius: '8px',
-                  border: '2px solid #e5e7eb',
-                }}
-              />
-            </Form.Item>
-
-            <Form.Item style={{ marginBottom: 0, marginTop: '24px' }}>
-              <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                <Button
-                  onClick={handleAdminLoginCancel}
-                  size="large"
-                  style={{
-                    borderRadius: '8px',
-                    height: '45px',
-                    padding: '0 24px',
-                    border: '2px solid #e5e7eb',
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  loading={loading}
-                  size="large"
-                  style={{
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    height: '45px',
-                    padding: '0 24px',
-                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
-                  }}
-                >
-                  Login as Admin
-                </Button>
-              </Space>
-            </Form.Item>
-          </Form>
-        </Modal>
-
-        {/* Create Doctor Modal */}
-        <Modal
-          title={
-            <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000' }}>
-              Create New Doctor
+          {/* Hero Header - Search and Filters */}
+          <div className="animate-slide-in responsive-card" style={{
+            maxWidth: '100vw',
+            margin: '0 auto 24px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            padding: '32px',
+            borderRadius: '16px',
+            boxShadow: '0 10px 40px rgba(102, 126, 234, 0.2)',
+          }}>
+            <Title level={3} style={{ color: '#ffffff', marginBottom: '24px', fontWeight: 700 }}>
+              <FilterOutlined style={{ marginRight: '12px' }} />
+              Filter Claims
             </Title>
-          }
-          open={isModalOpen}
-          onCancel={handleCancel}
-          footer={null}
-          width={500}
-          centered
-          styles={{
-            header: {
-              borderBottom: '2px solid #667eea',
-              paddingBottom: '16px'
-            }
-          }}
-        >
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={handleCreateDoctor}
-            style={{ marginTop: '24px' }}
-          >
-            <Form.Item
-              label={<span style={{ color: '#000000', fontWeight: 600 }}>Name</span>}
-              name="name"
-              rules={[
-                {
-                  required: true,
-                  message: 'Please input doctor name!',
-                },
-                {
-                  min: 3,
-                  message: 'Name must be at least 3 characters!',
-                },
-              ]}
-            >
+
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+              {/* Search Input */}
               <Input
-                prefix={<UserOutlined style={{ color: '#667eea' }} />}
-                placeholder="Enter doctor name"
                 size="large"
+                placeholder="Search by Claim ID, Patient Name, or Mobile Number..."
+                prefix={<SearchOutlined style={{ color: '#667eea', fontSize: '18px' }} />}
+                value={searchText}
+                onChange={(e) => handleSearch(e.target.value)}
                 style={{
                   borderRadius: '8px',
-                  border: '2px solid #e5e7eb',
+                  border: '2px solid #ffffff',
+                  background: '#ffffff',
+                  fontSize: '16px',
+                  padding: '12px 16px',
+                  height: '50px'
                 }}
+                allowClear
               />
-            </Form.Item>
 
-            <Form.Item
-              label={<span style={{ color: '#000000', fontWeight: 600 }}>Email</span>}
-              name="email"
-              rules={[
-                {
-                  required: true,
-                  message: 'Please input doctor email!',
-                },
-                {
-                  type: 'email',
-                  message: 'Please enter a valid email!',
-                },
-              ]}
-            >
-              <Input
-                prefix={<UserOutlined style={{ color: '#667eea' }} />}
-                placeholder="Enter doctor email"
-                size="large"
-                style={{
-                  borderRadius: '8px',
-                  border: '2px solid #e5e7eb',
-                }}
-              />
-            </Form.Item>
-
-            <Form.Item
-              label={<span style={{ color: '#000000', fontWeight: 600 }}>Password</span>}
-              name="password"
-              rules={[
-                {
-                  required: true,
-                  message: 'Please input password!',
-                },
-                {
-                  min: 6,
-                  message: 'Password must be at least 6 characters!',
-                },
-              ]}
-            >
-              <Input.Password
-                placeholder="Enter password"
-                size="large"
-                style={{
-                  borderRadius: '8px',
-                  border: '2px solid #e5e7eb',
-                }}
-              />
-            </Form.Item>
-
-            <Form.Item style={{ marginBottom: 0, marginTop: '24px' }}>
-              <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                <Button
-                  onClick={handleCancel}
-                  size="large"
-                  style={{
-                    borderRadius: '8px',
-                    height: '45px',
-                    padding: '0 24px',
-                    border: '2px solid #e5e7eb',
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  loading={loading}
-                  size="large"
-                  style={{
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    height: '45px',
-                    padding: '0 24px',
-                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
-                  }}
-                >
-                  Create Doctor
-                </Button>
-              </Space>
-            </Form.Item>
-          </Form>
-        </Modal>
-
-        {/* Create Claim Modal - 2 Steps */}
-        <Modal
-          title={
-            <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000' }}>
-              Create New Claim
-            </Title>
-          }
-          open={isClaimModalOpen}
-          onCancel={handleClaimCancel}
-          footer={null}
-          width={700}
-          centered
-          styles={{
-            header: {
-              borderBottom: '2px solid #667eea',
-              paddingBottom: '16px'
-            }
-          }}
-        >
-          <Steps
-            current={currentStep}
-            style={{ marginTop: '24px', marginBottom: '32px' }}
-            items={[
-              {
-                title: 'Patient Information',
-                icon: <UserOutlined />,
-              },
-              {
-                title: 'Upload Documents',
-                icon: <InboxOutlined />,
-              },
-            ]}
-          />
-
-          <Form
-            form={claimForm}
-            layout="vertical"
-            style={{ marginTop: '24px' }}
-          >
-            {/* Step 1: Patient Information */}
-            {currentStep === 0 && (
-              <div className="animate-fade-in">
-                <Form.Item
-                  label={<span style={{ color: '#000000', fontWeight: 600 }}>Claim ID</span>}
-                  name="claimId"
-                  rules={[
-                    {
-                      required: true,
-                      message: 'Please input claim ID!',
-                    },
-                  ]}
-                >
-                  <Input
-                    placeholder="Enter claim ID"
-                    size="large"
-                    style={{
-                      borderRadius: '8px',
-                      border: '2px solid #e5e7eb',
-                    }}
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  label={<span style={{ color: '#000000', fontWeight: 600 }}>Patient Name</span>}
-                  name="patientName"
-                  rules={[
-                    {
-                      required: true,
-                      message: 'Please input patient name!',
-                    },
-                  ]}
-                >
-                  <Input
-                    prefix={<UserOutlined style={{ color: '#667eea' }} />}
-                    placeholder="Enter patient name"
-                    size="large"
-                    style={{
-                      borderRadius: '8px',
-                      border: '2px solid #e5e7eb',
-                    }}
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  label={<span style={{ color: '#000000', fontWeight: 600 }}>Patient Mobile Number</span>}
-                  name="patientMobile"
-                  rules={[
-                    {
-                      required: true,
-                      message: 'Please input mobile number!',
-                    },
-                    {
-                      pattern: /^[0-9]{10}$/,
-                      message: 'Please enter valid 10 digit mobile number!',
-                    },
-                  ]}
-                >
-                  <Input
-                    placeholder="Enter 10 digit mobile number"
-                    size="large"
-                    maxLength={10}
-                    style={{
-                      borderRadius: '8px',
-                      border: '2px solid #e5e7eb',
-                    }}
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  label={<span style={{ color: '#000000', fontWeight: 600 }}>Hospital City</span>}
-                  name="hospitalCity"
-                  rules={[
-                    {
-                      required: true,
-                      message: 'Please input hospital city!',
-                    },
-                  ]}
-                >
-                  <Input
-                    placeholder="Enter hospital city"
-                    size="large"
-                    style={{
-                      borderRadius: '8px',
-                      border: '2px solid #e5e7eb',
-                    }}
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  label={<span style={{ color: '#000000', fontWeight: 600 }}>Hospital State</span>}
-                  name="hospitalState"
-                  rules={[
-                    {
-                      required: true,
-                      message: 'Please select hospital state!',
-                    },
-                  ]}
-                >
+              {/* Filters Row */}
+              <Space size="middle" wrap style={{ width: '100%' }}>
+                {/* Status Filter */}
+                <div className="filter-item" style={{ minWidth: '250px', flex: '1 1 200px' }}>
+                  <Text strong style={{ color: '#ffffff', display: 'block', marginBottom: '8px', fontSize: '14px' }}>
+                    Status
+                  </Text>
                   <Select
-                    placeholder="Select hospital state"
                     size="large"
-                    showSearch
-                    style={{
-                      borderRadius: '8px',
-                    }}
-                    options={indianStates.map(state => ({ label: state, value: state }))}
+                    value={statusFilter}
+                    onChange={handleStatusChange}
+                    style={{ width: '100%', borderRadius: '8px' }}
+                    options={[
+                      { label: 'All Claims', value: 'all' },
+                      { label: 'Open', value: 'open' },
+                      { label: 'Closed', value: 'closed' },
+                      { label: 'Pending', value: 'pending' },
+                      { label: 'In Progress', value: 'in_progress' },
+                    ]}
                   />
-                </Form.Item>
+                </div>
 
-                <Form.Item
-                  label={<span style={{ color: '#000000', fontWeight: 600 }}>Patient Language</span>}
-                  name="patientLanguage"
-                  rules={[
-                    {
-                      required: true,
-                      message: 'Please select patient language!',
-                    },
-                  ]}
-                >
-                  <Select
-                    placeholder="Select patient language"
+                {/* Date Range Filter */}
+                <div className="filter-item" style={{ minWidth: '300px', flex: '1 1 250px' }}>
+                  <Text strong style={{ color: '#ffffff', display: 'block', marginBottom: '8px', fontSize: '14px' }}>
+                    Date Range
+                  </Text>
+                  <RangePicker
                     size="large"
-                    showSearch
-                    style={{
-                      borderRadius: '8px',
-                    }}
-                    options={languages.map(lang => ({ label: lang, value: lang }))}
+                    value={dateRange}
+                    onChange={handleDateRangeChange}
+                    style={{ width: '100%', borderRadius: '8px' }}
+                    format="DD/MM/YYYY"
+                    placeholder={['Start Date', 'End Date']}
                   />
-                </Form.Item>
+                </div>
 
-                <Form.Item style={{ marginBottom: 0, marginTop: '24px' }}>
-                  <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                    <Button
-                      onClick={handleClaimCancel}
-                      size="large"
-                      style={{
-                        borderRadius: '8px',
-                        height: '45px',
-                        padding: '0 24px',
-                        border: '2px solid #e5e7eb',
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="primary"
-                      onClick={handleNextStep}
-                      size="large"
-                      style={{
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        border: 'none',
-                        borderRadius: '8px',
-                        height: '45px',
-                        padding: '0 24px',
-                        boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
-                      }}
-                    >
-                      Next
-                    </Button>
-                  </Space>
-                </Form.Item>
-              </div>
-            )}
-
-            {/* Step 2: Upload Documents */}
-            {currentStep === 1 && (
-              <div className="animate-fade-in">
-                <Form.Item
-                  label={<span style={{ color: '#000000', fontWeight: 600, fontSize: '16px' }}>Upload Documents</span>}
-                >
-                  <Dragger
-                    {...uploadProps}
+                {/* Clear Filters Button */}
+                <div style={{ marginTop: '28px' }}>
+                  <Button
+                    size="large"
+                    onClick={handleClearFilters}
                     style={{
-                      borderRadius: '12px',
-                      border: '3px dashed #667eea',
-                      background: '#f9fafb',
-                      padding: '20px',
+                      background: '#ffffff',
+                      color: '#667eea',
+                      border: '2px solid #ffffff',
+                      borderRadius: '8px',
+                      height: '40px',
+                      padding: '0 24px',
+                      fontWeight: 600,
+                      transition: 'all 0.3s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#f0fdf4';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#ffffff';
+                      e.currentTarget.style.transform = 'translateY(0)';
                     }}
                   >
-                    <p className="ant-upload-drag-icon">
-                      <InboxOutlined style={{ fontSize: '64px', color: '#667eea' }} />
-                    </p>
-                    <p style={{ fontSize: '18px', fontWeight: 600, color: '#000000', margin: '16px 0 8px' }}>
-                      Click or drag files to this area to upload
-                    </p>
-                    <p style={{ color: '#6b7280', fontSize: '14px', padding: '0 32px' }}>
-                      Support for single or bulk upload. You can upload PDF, images, or other document formats.
-                      Drag and drop your files here or click to browse.
-                    </p>
-                  </Dragger>
-                </Form.Item>
+                    Clear Filters
+                  </Button>
+                </div>
+              </Space>
 
-                {fileList.length > 0 && (
+              {/* Active Filters Display */}
+              {(searchText || statusFilter !== 'all' || (dateRange && dateRange[0])) && (
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.3)'
+                }}>
+                  <Text strong style={{ color: '#ffffff', fontSize: '14px' }}>
+                    Active Filters:
+                    {searchText && ` Search: "${searchText}"`}
+                    {statusFilter !== 'all' && ` | Status: ${statusFilter}`}
+                    {dateRange && dateRange[0] && ` | Date Range Selected`}
+                  </Text>
+                </div>
+              )}
+            </Space>
+          </div>
+
+          {/* Statistics Cards */}
+          <div className="stats-grid" style={{
+            maxWidth: '100vw',
+            margin: '0 auto 24px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: '20px'
+          }}>
+            {/* Total Claims Card */}
+            <Card
+              className="animate-fade-in"
+              style={{
+                borderRadius: '16px',
+                border: '2px solid #667eea',
+                background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)',
+                boxShadow: '0 4px 20px rgba(102, 126, 234, 0.15)',
+                transition: 'all 0.3s ease',
+                cursor: 'pointer'
+              }}
+              hoverable
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = '0 8px 30px rgba(16, 185, 129, 0.25)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 20px rgba(16, 185, 129, 0.15)';
+              }}
+            >
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
+                    Total Claims
+                  </Text>
                   <div style={{
-                    marginTop: '16px',
-                    padding: '16px',
-                    background: '#f0fdf4',
-                    borderRadius: '8px',
-                    border: '1px solid #10b981'
+                    width: '48px',
+                    height: '48px',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
                   }}>
-                    <Text strong style={{ color: '#059669', fontSize: '14px' }}>
-                      {fileList.length} file(s) selected
-                    </Text>
+                    <FileTextOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
                   </div>
-                )}
+                </div>
+                <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                  {statistics.totalClaims}
+                </Title>
+                <Text style={{ color: '#667eea', fontSize: '12px', fontWeight: 600 }}>
+                  ● All time claims
+                </Text>
+              </Space>
+            </Card>
 
-                <Form.Item style={{ marginBottom: 0, marginTop: '32px' }}>
-                  <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                    <Button
-                      onClick={handlePrevStep}
+            {/* Open Claims Card */}
+            <Card
+              className="animate-fade-in"
+              style={{
+                borderRadius: '16px',
+                border: '2px solid #667eea',
+                background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)',
+                boxShadow: '0 4px 20px rgba(102, 126, 234, 0.15)',
+                transition: 'all 0.3s ease',
+                cursor: 'pointer',
+                animationDelay: '0.1s'
+              }}
+              hoverable
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = '0 8px 30px rgba(16, 185, 129, 0.25)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 20px rgba(16, 185, 129, 0.15)';
+              }}
+            >
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
+                    Open Claims
+                  </Text>
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(245, 158, 11, 0.3)'
+                  }}>
+                    <CheckCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
+                  </div>
+                </div>
+                <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                  {statistics.openClaims}
+                </Title>
+                <Text style={{ color: '#f59e0b', fontSize: '12px', fontWeight: 600 }}>
+                  ● Pending resolution
+                </Text>
+              </Space>
+            </Card>
+
+            {/* Closed Claims Card */}
+            <Card
+              className="animate-fade-in"
+              style={{
+                borderRadius: '16px',
+                border: '2px solid #667eea',
+                background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)',
+                boxShadow: '0 4px 20px rgba(102, 126, 234, 0.15)',
+                transition: 'all 0.3s ease',
+                cursor: 'pointer',
+                animationDelay: '0.2s'
+              }}
+              hoverable
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = '0 8px 30px rgba(16, 185, 129, 0.25)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 20px rgba(16, 185, 129, 0.15)';
+              }}
+            >
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
+                    Closed Claims
+                  </Text>
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    background: 'linear-gradient(135deg, #000000 0%, #1f2937 100%)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
+                  }}>
+                    <CloseCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
+                  </div>
+                </div>
+                <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                  {statistics.closedClaims}
+                </Title>
+                <Text style={{ color: '#059669', fontSize: '12px', fontWeight: 600 }}>
+                  ● Successfully resolved
+                </Text>
+              </Space>
+            </Card>
+
+            {/* Total Meeting Hours Card */}
+            <Card
+              className="animate-fade-in"
+              style={{
+                borderRadius: '16px',
+                border: '2px solid #667eea',
+                background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)',
+                boxShadow: '0 4px 20px rgba(102, 126, 234, 0.15)',
+                transition: 'all 0.3s ease',
+                cursor: 'pointer',
+                animationDelay: '0.3s'
+              }}
+              hoverable
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = '0 8px 30px rgba(102, 126, 234, 0.25)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 20px rgba(102, 126, 234, 0.15)';
+              }}
+            >
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
+                    Total Meeting Time
+                  </Text>
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)'
+                  }}>
+                    <ClockCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
+                  </div>
+                </div>
+                <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                  {statistics.totalMeetingHours} hrs
+                </Title>
+                <Text style={{ color: '#8b5cf6', fontSize: '12px', fontWeight: 600 }}>
+                  ● Total video call time
+                </Text>
+              </Space>
+            </Card>
+
+            {/* Claims Exceeding 6 Hours Card */}
+            <Card
+              className="animate-fade-in"
+              style={{
+                borderRadius: '16px',
+                border: '2px solid #ef4444',
+                background: 'linear-gradient(135deg, #ffffff 0%, #fee2e2 100%)',
+                boxShadow: '0 4px 20px rgba(239, 68, 68, 0.15)',
+                transition: 'all 0.3s ease',
+                cursor: 'pointer',
+                animationDelay: '0.4s'
+              }}
+              hoverable
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = '0 8px 30px rgba(239, 68, 68, 0.25)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 20px rgba(239, 68, 68, 0.15)';
+              }}
+            >
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Text style={{ color: '#6b7280', fontSize: '14px', fontWeight: 500 }}>
+                    Claims &gt; 6 Hours
+                  </Text>
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                  }}>
+                    <ClockCircleOutlined style={{ fontSize: '24px', color: '#ffffff' }} />
+                  </div>
+                </div>
+                <Title level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                  {statistics.claimsExceeding6Hours}
+                </Title>
+                <Text style={{ color: '#ef4444', fontSize: '12px', fontWeight: 600 }}>
+                  ● Exceeded time threshold
+                </Text>
+              </Space>
+            </Card>
+          </div>
+
+          {/* Claims Table */}
+          <div style={{
+            maxWidth: '100vw',
+            margin: '0 auto 24px',
+          }}>
+            <Card
+              className="animate-fade-in"
+              style={{
+                borderRadius: '16px',
+                border: '2px solid #667eea',
+                background: '#ffffff',
+                boxShadow: '0 4px 20px rgba(102, 126, 234, 0.1)',
+              }}
+            >
+              <div className="table-header-responsive" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
+                  <FileTextOutlined style={{ marginRight: '12px', color: '#667eea' }} />
+                  Claims List
+                </Title>
+                <Button
+                  className="responsive-button"
+                  type="primary"
+                  icon={<ReloadOutlined />}
+                  onClick={handleRefresh}
+                  loading={refreshing}
+                  style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    height: '40px',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>Refresh</span>
+                </Button>
+              </div>
+              <Table
+                columns={columns}
+                dataSource={claimsData}
+                pagination={{
+                  pageSize: 10,
+                  showSizeChanger: true,
+                  showTotal: (total) => `Total ${total} claims`,
+                  style: { marginTop: '16px' },
+                  responsive: true
+                }}
+                scroll={{ x: 1700 }}
+                style={{
+                  borderRadius: '8px',
+                }}
+                rowClassName={(record, index) =>
+                  index % 2 === 0 ? 'table-row-light' : 'table-row-dark'
+                }
+                size="middle"
+              />
+            </Card>
+          </div>
+
+          {/* Admin Login Modal */}
+          <Modal
+            title={
+              <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000' }}>
+                <LockOutlined style={{ marginRight: '12px', color: '#667eea' }} />
+                Admin Login Required
+              </Title>
+            }
+            open={isAdminLoginModalOpen}
+            onCancel={handleAdminLoginCancel}
+            footer={null}
+            width={450}
+            centered
+            styles={{
+              header: {
+                borderBottom: '2px solid #667eea',
+                paddingBottom: '16px'
+              }
+            }}
+          >
+            <div style={{ textAlign: 'center', marginBottom: '24px', marginTop: '16px' }}>
+              <Text style={{ color: '#6b7280', fontSize: '14px' }}>
+                Only admin can create doctors. Please login with admin credentials.
+              </Text>
+            </div>
+
+            <Form
+              form={adminLoginForm}
+              layout="vertical"
+              onFinish={handleAdminLogin}
+            >
+              <Form.Item
+                label={<span style={{ color: '#000000', fontWeight: 600 }}>Admin Email</span>}
+                name="email"
+                rules={[
+                  {
+                    required: true,
+                    message: 'Please input admin email!',
+                  },
+                  {
+                    type: 'email',
+                    message: 'Please enter a valid email!',
+                  },
+                ]}
+              >
+                <Input
+                  prefix={<UserOutlined style={{ color: '#667eea' }} />}
+                  placeholder="Enter admin email"
+                  size="large"
+                  style={{
+                    borderRadius: '8px',
+                    border: '2px solid #e5e7eb',
+                  }}
+                />
+              </Form.Item>
+
+              <Form.Item
+                label={<span style={{ color: '#000000', fontWeight: 600 }}>Password</span>}
+                name="password"
+                rules={[
+                  {
+                    required: true,
+                    message: 'Please input password!',
+                  },
+                ]}
+              >
+                <Input.Password
+                  prefix={<LockOutlined style={{ color: '#667eea' }} />}
+                  placeholder="Enter password"
+                  size="large"
+                  style={{
+                    borderRadius: '8px',
+                    border: '2px solid #e5e7eb',
+                  }}
+                />
+              </Form.Item>
+
+              <Form.Item style={{ marginBottom: 0, marginTop: '24px' }}>
+                <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                  <Button
+                    onClick={handleAdminLoginCancel}
+                    size="large"
+                    style={{
+                      borderRadius: '8px',
+                      height: '45px',
+                      padding: '0 24px',
+                      border: '2px solid #e5e7eb',
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    loading={loading}
+                    size="large"
+                    style={{
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      height: '45px',
+                      padding: '0 24px',
+                      boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                    }}
+                  >
+                    Login as Admin
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </Modal>
+
+          {/* Create Doctor Modal */}
+          <Modal
+            title={
+              <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000' }}>
+                Create New Doctor
+              </Title>
+            }
+            open={isModalOpen}
+            onCancel={handleCancel}
+            footer={null}
+            width={500}
+            centered
+            styles={{
+              header: {
+                borderBottom: '2px solid #667eea',
+                paddingBottom: '16px'
+              }
+            }}
+          >
+            <Form
+              form={form}
+              layout="vertical"
+              onFinish={handleCreateDoctor}
+              style={{ marginTop: '24px' }}
+            >
+              <Form.Item
+                label={<span style={{ color: '#000000', fontWeight: 600 }}>Name</span>}
+                name="name"
+                rules={[
+                  {
+                    required: true,
+                    message: 'Please input doctor name!',
+                  },
+                  {
+                    min: 3,
+                    message: 'Name must be at least 3 characters!',
+                  },
+                ]}
+              >
+                <Input
+                  prefix={<UserOutlined style={{ color: '#667eea' }} />}
+                  placeholder="Enter doctor name"
+                  size="large"
+                  style={{
+                    borderRadius: '8px',
+                    border: '2px solid #e5e7eb',
+                  }}
+                />
+              </Form.Item>
+
+              <Form.Item
+                label={<span style={{ color: '#000000', fontWeight: 600 }}>Email</span>}
+                name="email"
+                rules={[
+                  {
+                    required: true,
+                    message: 'Please input doctor email!',
+                  },
+                  {
+                    type: 'email',
+                    message: 'Please enter a valid email!',
+                  },
+                ]}
+              >
+                <Input
+                  prefix={<UserOutlined style={{ color: '#667eea' }} />}
+                  placeholder="Enter doctor email"
+                  size="large"
+                  style={{
+                    borderRadius: '8px',
+                    border: '2px solid #e5e7eb',
+                  }}
+                />
+              </Form.Item>
+
+              <Form.Item
+                label={<span style={{ color: '#000000', fontWeight: 600 }}>Password</span>}
+                name="password"
+                rules={[
+                  {
+                    required: true,
+                    message: 'Please input password!',
+                  },
+                  {
+                    min: 6,
+                    message: 'Password must be at least 6 characters!',
+                  },
+                ]}
+              >
+                <Input.Password
+                  placeholder="Enter password"
+                  size="large"
+                  style={{
+                    borderRadius: '8px',
+                    border: '2px solid #e5e7eb',
+                  }}
+                />
+              </Form.Item>
+
+              <Form.Item style={{ marginBottom: 0, marginTop: '24px' }}>
+                <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                  <Button
+                    onClick={handleCancel}
+                    size="large"
+                    style={{
+                      borderRadius: '8px',
+                      height: '45px',
+                      padding: '0 24px',
+                      border: '2px solid #e5e7eb',
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    loading={loading}
+                    size="large"
+                    style={{
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      height: '45px',
+                      padding: '0 24px',
+                      boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                    }}
+                  >
+                    Create Doctor
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </Modal>
+
+          {/* Create Claim Modal - 2 Steps */}
+          <Modal
+            title={
+              <Title className="responsive-title" level={3} style={{ margin: 0, color: '#000000' }}>
+                Create New Claim
+              </Title>
+            }
+            open={isClaimModalOpen}
+            onCancel={handleClaimCancel}
+            footer={null}
+            width={700}
+            centered
+            styles={{
+              header: {
+                borderBottom: '2px solid #667eea',
+                paddingBottom: '16px'
+              }
+            }}
+          >
+            <Steps
+              current={currentStep}
+              style={{ marginTop: '24px', marginBottom: '32px' }}
+              items={[
+                {
+                  title: 'Patient Information',
+                  icon: <UserOutlined />,
+                },
+                {
+                  title: 'Upload Documents',
+                  icon: <InboxOutlined />,
+                },
+              ]}
+            />
+
+            <Form
+              form={claimForm}
+              layout="vertical"
+              style={{ marginTop: '24px' }}
+            >
+              {/* Step 1: Patient Information */}
+              {currentStep === 0 && (
+                <div className="animate-fade-in">
+                  <Form.Item
+                    label={<span style={{ color: '#000000', fontWeight: 600 }}>Claim ID</span>}
+                    name="claimId"
+                    rules={[
+                      {
+                        required: true,
+                        message: 'Please input claim ID!',
+                      },
+                    ]}
+                  >
+                    <Input
+                      placeholder="Enter claim ID"
                       size="large"
                       style={{
                         borderRadius: '8px',
-                        height: '45px',
-                        padding: '0 24px',
                         border: '2px solid #e5e7eb',
                       }}
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      type="primary"
-                      onClick={handleCreateClaim}
-                      loading={loading}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    label={<span style={{ color: '#000000', fontWeight: 600 }}>Patient Name</span>}
+                    name="patientName"
+                    rules={[
+                      {
+                        required: true,
+                        message: 'Please input patient name!',
+                      },
+                    ]}
+                  >
+                    <Input
+                      prefix={<UserOutlined style={{ color: '#667eea' }} />}
+                      placeholder="Enter patient name"
                       size="large"
                       style={{
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        border: 'none',
                         borderRadius: '8px',
-                        height: '45px',
-                        padding: '0 24px',
-                        boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                        border: '2px solid #e5e7eb',
+                      }}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    label={<span style={{ color: '#000000', fontWeight: 600 }}>Patient Mobile Number</span>}
+                    name="patientMobile"
+                    rules={[
+                      {
+                        required: true,
+                        message: 'Please input mobile number!',
+                      },
+                      {
+                        pattern: /^[0-9]{10}$/,
+                        message: 'Please enter valid 10 digit mobile number!',
+                      },
+                    ]}
+                  >
+                    <Input
+                      placeholder="Enter 10 digit mobile number"
+                      size="large"
+                      maxLength={10}
+                      style={{
+                        borderRadius: '8px',
+                        border: '2px solid #e5e7eb',
+                      }}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    label={<span style={{ color: '#000000', fontWeight: 600 }}>Hospital City</span>}
+                    name="hospitalCity"
+                    rules={[
+                      {
+                        required: true,
+                        message: 'Please input hospital city!',
+                      },
+                    ]}
+                  >
+                    <Input
+                      placeholder="Enter hospital city"
+                      size="large"
+                      style={{
+                        borderRadius: '8px',
+                        border: '2px solid #e5e7eb',
+                      }}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    label={<span style={{ color: '#000000', fontWeight: 600 }}>Hospital State</span>}
+                    name="hospitalState"
+                    rules={[
+                      {
+                        required: true,
+                        message: 'Please select hospital state!',
+                      },
+                    ]}
+                  >
+                    <Select
+                      placeholder="Select hospital state"
+                      size="large"
+                      showSearch
+                      style={{
+                        borderRadius: '8px',
+                      }}
+                      options={indianStates.map(state => ({ label: state, value: state }))}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    label={<span style={{ color: '#000000', fontWeight: 600 }}>Patient Language</span>}
+                    name="patientLanguage"
+                    rules={[
+                      {
+                        required: true,
+                        message: 'Please select patient language!',
+                      },
+                    ]}
+                  >
+                    <Select
+                      placeholder="Select patient language"
+                      size="large"
+                      showSearch
+                      style={{
+                        borderRadius: '8px',
+                      }}
+                      options={languages.map(lang => ({ label: lang, value: lang }))}
+                    />
+                  </Form.Item>
+
+                  <Form.Item style={{ marginBottom: 0, marginTop: '24px' }}>
+                    <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                      <Button
+                        onClick={handleClaimCancel}
+                        size="large"
+                        style={{
+                          borderRadius: '8px',
+                          height: '45px',
+                          padding: '0 24px',
+                          border: '2px solid #e5e7eb',
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="primary"
+                        onClick={handleNextStep}
+                        size="large"
+                        style={{
+                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          border: 'none',
+                          borderRadius: '8px',
+                          height: '45px',
+                          padding: '0 24px',
+                          boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                        }}
+                      >
+                        Next
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                </div>
+              )}
+
+              {/* Step 2: Upload Documents */}
+              {currentStep === 1 && (
+                <div className="animate-fade-in">
+                  <Form.Item
+                    label={<span style={{ color: '#000000', fontWeight: 600, fontSize: '16px' }}>Upload Documents</span>}
+                  >
+                    <Dragger
+                      {...uploadProps}
+                      style={{
+                        borderRadius: '12px',
+                        border: '3px dashed #667eea',
+                        background: '#f9fafb',
+                        padding: '20px',
                       }}
                     >
-                      Create Claim
-                    </Button>
-                  </Space>
-                </Form.Item>
-              </div>
-            )}
-          </Form>
-        </Modal>
-      </div>
+                      <p className="ant-upload-drag-icon">
+                        <InboxOutlined style={{ fontSize: '64px', color: '#667eea' }} />
+                      </p>
+                      <p style={{ fontSize: '18px', fontWeight: 600, color: '#000000', margin: '16px 0 8px' }}>
+                        Click or drag files to this area to upload
+                      </p>
+                      <p style={{ color: '#6b7280', fontSize: '14px', padding: '0 32px' }}>
+                        Support for single or bulk upload. You can upload PDF, images, or other document formats.
+                        Drag and drop your files here or click to browse.
+                      </p>
+                    </Dragger>
+                  </Form.Item>
+
+                  {fileList.length > 0 && (
+                    <div style={{
+                      marginTop: '16px',
+                      padding: '16px',
+                      background: '#f0fdf4',
+                      borderRadius: '8px',
+                      border: '1px solid #10b981'
+                    }}>
+                      <Text strong style={{ color: '#059669', fontSize: '14px' }}>
+                        {fileList.length} file(s) selected
+                      </Text>
+                    </div>
+                  )}
+
+                  <Form.Item style={{ marginBottom: 0, marginTop: '32px' }}>
+                    <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                      <Button
+                        onClick={handlePrevStep}
+                        size="large"
+                        style={{
+                          borderRadius: '8px',
+                          height: '45px',
+                          padding: '0 24px',
+                          border: '2px solid #e5e7eb',
+                        }}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        type="primary"
+                        onClick={handleCreateClaim}
+                        loading={loading}
+                        size="large"
+                        style={{
+                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          border: 'none',
+                          borderRadius: '8px',
+                          height: '45px',
+                          padding: '0 24px',
+                          boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                        }}
+                      >
+                        Create Claim
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                </div>
+              )}
+            </Form>
+          </Modal>
+        </div>
       </div>
     </ConfigProvider>
   );

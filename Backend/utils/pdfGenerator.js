@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const GOOGLE_MAPS_API_KEY = 'AIzaSyBjCExT250iDt5eihZ9k3S-MDY234jWeoI';
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || 'YOUR_GOOGLE_MAPS_API_KEY_HERE';
 
 /**
  * Download Google Static Maps image

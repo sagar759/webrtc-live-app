@@ -86,7 +86,7 @@ const VideoCall = () => {
   const [signatureType, setSignatureType] = useState(null); // 'doctor' or 'patient'
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
-  
+
   const signatureCanvasRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
@@ -129,7 +129,7 @@ const VideoCall = () => {
     fetchMeetingDetails();
 
     // Initialize socket
-    const newSocket = io('https://api.stechooze.com');
+    const newSocket = io(import.meta.env.VITE_API_URL || 'http://localhost:5000');
     setSocket(newSocket);
 
     return () => {
@@ -160,7 +160,7 @@ const VideoCall = () => {
     socket.on('user-connected', async ({ userId, userName: remoteUserName, socketId }) => {
       message.success(`${remoteUserName} joined the meeting`);
       remoteSocketId.current = socketId;
-      
+
       // Create offer for new user
       if (role === 'doctor') {
         await createOffer(socketId);
@@ -281,8 +281,8 @@ const VideoCall = () => {
       setLocalStream(stream);
 
       // Join room via socket
-      const userId = role === 'doctor' 
-        ? JSON.parse(localStorage.getItem('user') || '{}').id 
+      const userId = role === 'doctor'
+        ? JSON.parse(localStorage.getItem('user') || '{}').id
         : `patient-${Date.now()}`;
 
       socket.emit('join-room', {
@@ -357,7 +357,7 @@ const VideoCall = () => {
     }
 
     const video = videoRef.current;
-    
+
     // Check if video has valid dimensions
     if (!video.videoWidth || !video.videoHeight) {
       message.error('Video not ready. Please wait a moment and try again.');
@@ -365,10 +365,10 @@ const VideoCall = () => {
     }
 
     setCapturing(true);
-    
+
     // Show capturing message
     const hideCapturingMsg = message.loading(
-      `📸 Capturing ${imageType === 'doctor' ? 'your' : 'patient'} image...`, 
+      `📸 Capturing ${imageType === 'doctor' ? 'your' : 'patient'} image...`,
       0
     );
 
@@ -377,17 +377,17 @@ const VideoCall = () => {
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      
+
       const ctx = canvas.getContext('2d');
-      
+
       // For doctor video (mirrored), flip it back
       if (imageType === 'doctor') {
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
       }
-      
+
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
+
       // Convert canvas to blob
       const blob = await new Promise((resolve, reject) => {
         canvas.toBlob((blob) => {
@@ -409,7 +409,7 @@ const VideoCall = () => {
         dimensions: `${canvas.width}x${canvas.height}`,
         claimId: claimId
       });
-      
+
       // Get user token
       const user = JSON.parse(localStorage.getItem('user') || '{}');
       const token = user.token;
@@ -420,24 +420,24 @@ const VideoCall = () => {
 
       // Hide capturing message
       hideCapturingMsg();
-      
+
       // Show uploading message
       const hideUploadingMsg = message.loading('📤 Saving image to claim database...', 0);
-      
+
       // Upload to backend with claim ID
       console.log('Uploading image with Claim ID:', claimId);
       const response = await uploadCapturedImage(claimId, blob, imageType, token);
-      
+
       // Hide uploading message
       hideUploadingMsg();
-      
+
       if (response.success) {
         console.log('Image saved successfully:', {
           claimId: response.data.claimId,
           totalImages: response.data.totalCapturedImages,
           imageType: imageType
         });
-        
+
         message.success({
           content: `✅ ${imageType === 'doctor' ? 'Your' : 'Patient\'s'} image saved to Claim ${response.data.claimId}! (Total: ${response.data.totalCapturedImages})`,
           duration: 4,
@@ -477,28 +477,28 @@ const VideoCall = () => {
   const startDrawing = (e) => {
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
-    
+
     setIsDrawing(true);
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
     const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
-    
+
     ctx.beginPath();
     ctx.moveTo(x, y);
   };
 
   const draw = (e) => {
     if (!isDrawing) return;
-    
+
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
-    
+
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
     const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
-    
+
     ctx.lineTo(x, y);
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 2;
@@ -624,7 +624,7 @@ const VideoCall = () => {
     } catch (error) {
       hideMsg();
       console.error('Error capturing location:', error);
-      
+
       if (error.code === 1) {
         message.error('Location permission denied. Please allow location access.');
       } else if (error.code === 2) {
@@ -648,7 +648,7 @@ const VideoCall = () => {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const isEmpty = !imageData.data.some(channel => channel !== 0);
-    
+
     if (isEmpty) {
       message.error('Please draw your signature first!');
       return;
@@ -718,7 +718,7 @@ const VideoCall = () => {
 
       // Create a combined stream with screen video and both audio sources
       const combinedStream = new MediaStream();
-      
+
       // Add video track from screen
       const videoTrack = screenStream.getVideoTracks()[0];
       if (videoTrack) {
@@ -818,12 +818,12 @@ const VideoCall = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      
+
       if (recordingIntervalRef.current) {
         clearInterval(recordingIntervalRef.current);
         recordingIntervalRef.current = null;
       }
-      
+
       message.info('⏹️ Recording stopped. Saving...');
     }
   };
@@ -899,11 +899,11 @@ const VideoCall = () => {
         console.log(`\n📞 === LEAVING MEETING ===`);
         console.log(`Room ID: ${roomId}`);
         console.log(`Claim ID: ${claimId}`);
-        
+
         const response = await completeMeetingByRoomId(roomId);
-        
+
         console.log('✅ API Response:', response);
-        
+
         if (response.success && response.data) {
           console.log(`📊 Meeting Status: ${response.data.meeting?.status}`);
           console.log(`📋 Claim Status: ${response.data.claim?.status}`);
@@ -914,7 +914,7 @@ const VideoCall = () => {
         } else {
           message.success('Meeting completed successfully!');
         }
-        
+
         console.log(`=========================\n`);
       } catch (error) {
         console.error('❌ Error completing meeting:', error);
@@ -1076,10 +1076,10 @@ const VideoCall = () => {
         }}>
           <div style={{ textAlign: 'center' }}>
             <Spin size="large" />
-            <Text style={{ 
-              color: '#ffffff', 
-              fontSize: '18px', 
-              display: 'block', 
+            <Text style={{
+              color: '#ffffff',
+              fontSize: '18px',
+              display: 'block',
               marginTop: '20px',
               fontWeight: 500,
             }}>
@@ -1207,7 +1207,7 @@ const VideoCall = () => {
       )}
 
       {/* Controls - Bottom Fixed */}
-      <div 
+      <div
         className="video-controls-container"
         style={{
           position: 'fixed',
@@ -1227,124 +1227,124 @@ const VideoCall = () => {
           zIndex: 10,
           maxWidth: 'calc(100vw - 40px)',
         }}>
-          <Button
-            size="large"
-            icon={isMuted ? <AudioMutedOutlined /> : <AudioOutlined />}
-            onClick={toggleMute}
-            style={{
-              background: isMuted ? '#ef4444' : '#10b981',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '8px',
-              height: '50px',
-              width: '50px',
-            }}
-          />
+        <Button
+          size="large"
+          icon={isMuted ? <AudioMutedOutlined /> : <AudioOutlined />}
+          onClick={toggleMute}
+          style={{
+            background: isMuted ? '#ef4444' : '#10b981',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '8px',
+            height: '50px',
+            width: '50px',
+          }}
+        />
 
-          <Button
-            size="large"
-            icon={<VideoCameraOutlined />}
-            onClick={toggleVideo}
-            style={{
-              background: isVideoOff ? '#ef4444' : '#10b981',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '8px',
-              height: '50px',
-              width: '50px',
-            }}
-          />
+        <Button
+          size="large"
+          icon={<VideoCameraOutlined />}
+          onClick={toggleVideo}
+          style={{
+            background: isVideoOff ? '#ef4444' : '#10b981',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '8px',
+            height: '50px',
+            width: '50px',
+          }}
+        />
 
-          {role === 'doctor' && (
-            <>
-              <Button
-                size="large"
-                icon={isRecording ? <StopOutlined /> : <PlayCircleOutlined />}
-                onClick={isRecording ? stopRecording : startRecording}
-                style={{
-                  background: isRecording ? '#ef4444' : '#dc2626',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  height: '50px',
-                  padding: '0 20px',
-                  fontWeight: 600,
-                  animation: isRecording ? 'pulse 1.5s infinite' : 'none',
-                }}
-              >
-                {isRecording ? `Stop (${Math.floor(recordingDuration / 60)}:${(recordingDuration % 60).toString().padStart(2, '0')})` : 'Record'}
-              </Button>
-              <Button
-                size="large"
-                icon={<EditOutlined />}
-                onClick={() => openSignaturePad('doctor')}
-                style={{
-                  background: '#3b82f6',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  height: '50px',
-                  padding: '0 20px',
-                  fontWeight: 600,
-                }}
-              >
-                My Sign
-              </Button>
-              <Button
-                size="large"
-                icon={<EnvironmentOutlined />}
-                onClick={() => captureLocation('doctor')}
-                style={{
-                  background: '#f59e0b',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  height: '50px',
-                  padding: '0 20px',
-                  fontWeight: 600,
-                }}
-              >
-                My Location
-              </Button>
-            </>
-          )}
+        {role === 'doctor' && (
+          <>
+            <Button
+              size="large"
+              icon={isRecording ? <StopOutlined /> : <PlayCircleOutlined />}
+              onClick={isRecording ? stopRecording : startRecording}
+              style={{
+                background: isRecording ? '#ef4444' : '#dc2626',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                height: '50px',
+                padding: '0 20px',
+                fontWeight: 600,
+                animation: isRecording ? 'pulse 1.5s infinite' : 'none',
+              }}
+            >
+              {isRecording ? `Stop (${Math.floor(recordingDuration / 60)}:${(recordingDuration % 60).toString().padStart(2, '0')})` : 'Record'}
+            </Button>
+            <Button
+              size="large"
+              icon={<EditOutlined />}
+              onClick={() => openSignaturePad('doctor')}
+              style={{
+                background: '#3b82f6',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                height: '50px',
+                padding: '0 20px',
+                fontWeight: 600,
+              }}
+            >
+              My Sign
+            </Button>
+            <Button
+              size="large"
+              icon={<EnvironmentOutlined />}
+              onClick={() => captureLocation('doctor')}
+              style={{
+                background: '#f59e0b',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                height: '50px',
+                padding: '0 20px',
+                fontWeight: 600,
+              }}
+            >
+              My Location
+            </Button>
+          </>
+        )}
 
-          {remoteStream && (
-            <>
-              <Button
-                size="large"
-                icon={<EditOutlined />}
-                onClick={() => openSignaturePad('patient')}
-                style={{
-                  background: '#8b5cf6',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  height: '50px',
-                  padding: '0 20px',
-                  fontWeight: 600,
-                }}
-              >
-                Patient Sign
-              </Button>
-              <Button
-                size="large"
-                icon={<EnvironmentOutlined />}
-                onClick={() => captureLocation('patient')}
-                style={{
-                  background: '#ec4899',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  height: '50px',
-                  padding: '0 20px',
-                  fontWeight: 600,
-                }}
-              >
-                Patient Location
-              </Button>
-            </>
-          )}
+        {remoteStream && (
+          <>
+            <Button
+              size="large"
+              icon={<EditOutlined />}
+              onClick={() => openSignaturePad('patient')}
+              style={{
+                background: '#8b5cf6',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                height: '50px',
+                padding: '0 20px',
+                fontWeight: 600,
+              }}
+            >
+              Patient Sign
+            </Button>
+            <Button
+              size="large"
+              icon={<EnvironmentOutlined />}
+              onClick={() => captureLocation('patient')}
+              style={{
+                background: '#ec4899',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                height: '50px',
+                padding: '0 20px',
+                fontWeight: 600,
+              }}
+            >
+              Patient Location
+            </Button>
+          </>
+        )}
 
         <Button
           size="large"
@@ -1385,7 +1385,7 @@ const VideoCall = () => {
             <Title level={4} style={{ marginBottom: '16px', color: '#000000' }}>
               ✍️ {signatureType === 'doctor' ? 'Doctor Signature' : 'Patient Signature'}
             </Title>
-            
+
             <Text style={{ display: 'block', marginBottom: '16px', color: '#6b7280' }}>
               Draw your signature below using mouse or touch:
             </Text>
