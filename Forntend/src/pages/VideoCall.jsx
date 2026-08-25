@@ -103,6 +103,7 @@ const VideoCall = () => {
   const iceCandidatesQueue = useRef([]);
   const audioContextRef = useRef(null);
   const [remoteAudioLevel, setRemoteAudioLevel] = useState(0);
+  const [localAudioLevel, setLocalAudioLevel] = useState(0);
 
   const servers = {
     iceServers: [
@@ -129,6 +130,7 @@ const VideoCall = () => {
       }
 
       const audioTrack = stream.getAudioTracks()[0];
+      audioTrack.enabled = true;
       const audioStream = new MediaStream([audioTrack]);
       const source = ctx.createMediaStreamSource(audioStream);
 
@@ -137,7 +139,7 @@ const VideoCall = () => {
       analyser.smoothingTimeConstant = 0.5;
 
       const gainNode = ctx.createGain();
-      gainNode.gain.value = 1.0;
+      gainNode.gain.value = 2.0; // Boost volume so it's clearly audible
 
       source.connect(analyser);
       analyser.connect(gainNode);
@@ -157,7 +159,7 @@ const VideoCall = () => {
       };
       updateLevel();
 
-      console.log('✅ WebAudio direct speaker pipeline active & connected to sound card!');
+      console.log('✅ WebAudio direct speaker pipeline active & connected to sound card (Gain: 2.0x)!');
     } catch (err) {
       console.warn('WebAudio direct playback notice:', err);
     }
@@ -517,11 +519,34 @@ const VideoCall = () => {
         }
       });
 
-      // Ensure all audio tracks are active
+      // Ensure all audio tracks are active and monitor volume
       stream.getAudioTracks().forEach(track => {
         track.enabled = true;
         console.log(`Microphone ready: ${track.label}, enabled: ${track.enabled}`);
       });
+
+      if (stream.getAudioTracks().length > 0) {
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          const localCtx = new AudioCtx();
+          const localSource = localCtx.createMediaStreamSource(new MediaStream([stream.getAudioTracks()[0]]));
+          const localAnalyser = localCtx.createAnalyser();
+          localAnalyser.fftSize = 256;
+          localSource.connect(localAnalyser);
+          const localData = new Uint8Array(localAnalyser.frequencyBinCount);
+          const updateLocalLevel = () => {
+            localAnalyser.getByteFrequencyData(localData);
+            let sum = 0;
+            for (let i = 0; i < localData.length; i++) sum += localData[i];
+            const avg = sum / localData.length;
+            setLocalAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+            requestAnimationFrame(updateLocalLevel);
+          };
+          updateLocalLevel();
+        } catch (e) {
+          console.warn('Local mic meter error:', e);
+        }
+      }
 
       console.log('Local stream obtained:', stream.getTracks());
       localStreamRef.current = stream;
@@ -1399,15 +1424,25 @@ const VideoCall = () => {
           position: 'absolute',
           bottom: '8px',
           left: '8px',
-          background: 'rgba(0, 0, 0, 0.7)',
+          background: 'rgba(0, 0, 0, 0.75)',
           backdropFilter: 'blur(8px)',
           color: '#ffffff',
           padding: '4px 10px',
           borderRadius: '6px',
           fontSize: '12px',
           fontWeight: 500,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
         }}>
-          You ({userName})
+          <span>You ({userName})</span>
+          <span style={{
+            color: isMuted ? '#ef4444' : (localAudioLevel > 3 ? '#34d399' : '#9ca3af'),
+            fontWeight: 600,
+            fontSize: '11px',
+          }}>
+            {isMuted ? '🔇 Muted' : (localAudioLevel > 3 ? `🎤 ${localAudioLevel}%` : '🎤 Quiet')}
+          </span>
         </div>
         {/* Capture My Image Button */}
         {role === 'doctor' && (
