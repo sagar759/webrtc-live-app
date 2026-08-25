@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { SOCKET_URL } from '../services/api';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { Button, Card, Typography, Space, Input, message, Spin } from 'antd';
-import { VideoCameraOutlined, AudioOutlined, AudioMutedOutlined, PhoneOutlined, CopyOutlined, ShareAltOutlined, CameraOutlined, EditOutlined, CheckOutlined, CloseOutlined, ClearOutlined, EnvironmentOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
+import { Button, Card, Typography, Space, Input, message, Spin, Select, Modal } from 'antd';
+import { VideoCameraOutlined, AudioOutlined, AudioMutedOutlined, PhoneOutlined, CopyOutlined, ShareAltOutlined, CameraOutlined, EditOutlined, CheckOutlined, CloseOutlined, ClearOutlined, EnvironmentOutlined, PlayCircleOutlined, StopOutlined, SettingOutlined } from '@ant-design/icons';
 import io from 'socket.io-client';
 import { getMeetingByRoomId, uploadCapturedImage, uploadSignature, saveLocation, uploadRecording, completeMeetingByRoomId, startMeetingByRoomId } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
@@ -126,7 +126,7 @@ const VideoCall = () => {
       }
       const ctx = audioContextRef.current;
       if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
+        ctx.resume().catch(() => { });
       }
 
       const audioTrack = stream.getAudioTracks()[0];
@@ -195,7 +195,7 @@ const VideoCall = () => {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.muted = false;
         remoteVideoRef.current.volume = 1.0;
-        remoteVideoRef.current.play().catch(() => {});
+        remoteVideoRef.current.play().catch(() => { });
       }
 
       message.success('🔊 Speaker test sound played! WebAudio active.');
@@ -269,7 +269,7 @@ const VideoCall = () => {
         peerConnection.current.close();
       }
       if (audioContextRef.current) {
-        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current.close().catch(() => { });
         audioContextRef.current = null;
       }
     };
@@ -444,7 +444,7 @@ const VideoCall = () => {
         const otherUser = existingUsers[0];
         remoteSocketId.current = otherUser.socketId;
         message.info(`${otherUser.userName || 'Participant'} is already in the room. Connecting...`);
-        
+
         // The newcomer always creates the offer to connect to the existing user
         await createOffer(otherUser.socketId);
       }
@@ -480,7 +480,7 @@ const VideoCall = () => {
         remoteVideoRef.current.muted = false;
         remoteVideoRef.current.volume = 1.0;
         if (remoteVideoRef.current.paused) {
-          remoteVideoRef.current.play().catch(() => {});
+          remoteVideoRef.current.play().catch(() => { });
         }
       }
     };
@@ -566,6 +566,7 @@ const VideoCall = () => {
 
       setIsJoined(true);
       message.success('Joined meeting successfully!');
+      loadAudioDevices();
 
       // Mark meeting as started
       try {
@@ -1678,6 +1679,24 @@ const VideoCall = () => {
 
         <Button
           size="large"
+          icon={<SettingOutlined />}
+          onClick={() => {
+            loadAudioDevices();
+            setShowSettingsModal(true);
+          }}
+          style={{
+            background: 'rgba(255, 255, 255, 0.15)',
+            color: '#ffffff',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            borderRadius: '8px',
+            height: '50px',
+            width: '50px',
+          }}
+          title="Audio & Device Settings"
+        />
+
+        <Button
+          size="large"
           danger
           icon={<PhoneOutlined style={{ transform: 'rotate(135deg)' }} />}
           onClick={leaveMeeting}
@@ -1691,6 +1710,94 @@ const VideoCall = () => {
           Leave
         </Button>
       </div>
+
+      {/* Audio & Device Settings Modal */}
+      <Modal
+        title="⚙️ Audio & Device Settings"
+        open={showSettingsModal}
+        onOk={() => setShowSettingsModal(false)}
+        onCancel={() => setShowSettingsModal(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setShowSettingsModal(false)}>
+            Done
+          </Button>
+        ]}
+      >
+        <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: '6px' }}>
+              🎤 Select Microphone:
+            </Text>
+            <Select
+              style={{ width: '100%' }}
+              value={selectedAudioInput}
+              onChange={switchMicrophone}
+              placeholder="Select your microphone"
+            >
+              {audioInputDevices.map((dev, idx) => (
+                <Select.Option key={dev.deviceId} value={dev.deviceId}>
+                  {dev.label || `Microphone ${idx + 1}`}
+                </Select.Option>
+              ))}
+            </Select>
+            <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Text type="secondary" style={{ fontSize: '12px' }}>Live Mic Input:</Text>
+              <div style={{
+                flex: 1,
+                height: '10px',
+                background: '#e5e7eb',
+                borderRadius: '5px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${localAudioLevel}%`,
+                  background: localAudioLevel > 3 ? '#10b981' : '#9ca3af',
+                  transition: 'width 0.1s ease'
+                }} />
+              </div>
+              <Text style={{ fontSize: '12px', fontWeight: 600, minWidth: '35px' }}>
+                {localAudioLevel}%
+              </Text>
+            </div>
+          </div>
+
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: '6px' }}>
+              🔊 Select Speaker / Output:
+            </Text>
+            <Select
+              style={{ width: '100%' }}
+              value={selectedAudioOutput}
+              onChange={switchSpeaker}
+              placeholder="Select speaker output"
+            >
+              {audioOutputDevices.map((dev, idx) => (
+                <Select.Option key={dev.deviceId} value={dev.deviceId}>
+                  {dev.label || `Speaker ${idx + 1}`}
+                </Select.Option>
+              ))}
+            </Select>
+          </div>
+
+          <div style={{
+            background: '#f3f4f6',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <div>
+              <Text strong style={{ display: 'block' }}>Test Speakers</Text>
+              <Text type="secondary" style={{ fontSize: '12px' }}>Plays a test chime to verify sound card</Text>
+            </div>
+            <Button onClick={playSpeakerTestChime} icon={<AudioOutlined />}>
+              Play Test Chime
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Signature Pad Modal */}
       {showSignaturePad && (
