@@ -104,6 +104,11 @@ const VideoCall = () => {
   const audioContextRef = useRef(null);
   const [remoteAudioLevel, setRemoteAudioLevel] = useState(0);
   const [localAudioLevel, setLocalAudioLevel] = useState(0);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [audioInputDevices, setAudioInputDevices] = useState([]);
+  const [audioOutputDevices, setAudioOutputDevices] = useState([]);
+  const [selectedAudioInput, setSelectedAudioInput] = useState('');
+  const [selectedAudioOutput, setSelectedAudioOutput] = useState('');
 
   const servers = {
     iceServers: [
@@ -201,6 +206,80 @@ const VideoCall = () => {
       message.success('🔊 Speaker test sound played! WebAudio active.');
     } catch (e) {
       console.warn('Speaker test error:', e);
+    }
+  };
+
+  const loadAudioDevices = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return;
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter(d => d.kind === 'audioinput');
+      const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+      setAudioInputDevices(audioInputs);
+      setAudioOutputDevices(audioOutputs);
+      if (audioInputs.length > 0 && !selectedAudioInput) {
+        setSelectedAudioInput(audioInputs[0].deviceId);
+      }
+      if (audioOutputs.length > 0 && !selectedAudioOutput) {
+        setSelectedAudioOutput(audioOutputs[0].deviceId);
+      }
+    } catch (err) {
+      console.warn('Error loading audio devices:', err);
+    }
+  };
+
+  const switchMicrophone = async (deviceId) => {
+    try {
+      setSelectedAudioInput(deviceId);
+      const newAudioStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: { exact: deviceId },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }
+      });
+      const newTrack = newAudioStream.getAudioTracks()[0];
+      if (!newTrack) return;
+
+      if (localStreamRef.current) {
+        const oldTrack = localStreamRef.current.getAudioTracks()[0];
+        if (oldTrack) {
+          localStreamRef.current.removeTrack(oldTrack);
+          oldTrack.stop();
+        }
+        localStreamRef.current.addTrack(newTrack);
+        setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+      }
+
+      if (peerConnection.current) {
+        const senders = peerConnection.current.getSenders();
+        const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+        if (audioSender) {
+          await audioSender.replaceTrack(newTrack);
+        }
+      }
+      message.success('Microphone switched successfully');
+    } catch (err) {
+      console.error('Error switching microphone:', err);
+      message.error('Failed to switch microphone');
+    }
+  };
+
+  const switchSpeaker = async (deviceId) => {
+    try {
+      setSelectedAudioOutput(deviceId);
+      if (remoteVideoRef.current && typeof remoteVideoRef.current.setSinkId === 'function') {
+        await remoteVideoRef.current.setSinkId(deviceId);
+        message.success('Speaker switched successfully');
+      } else {
+        message.info('Speaker selected');
+      }
+    } catch (err) {
+      console.error('Error switching speaker:', err);
+      message.error('Failed to switch speaker');
     }
   };
 
@@ -451,7 +530,7 @@ const VideoCall = () => {
     });
 
     // When an existing user receives a new participant notification, wait for their offer
-    socket.on('user-connected', ({ userId, userName: remoteUserName, socketId }) => {
+    socket.on('user-connected', ({ userName: remoteUserName, socketId }) => {
       console.log('New user connected to room:', remoteUserName, socketId);
       message.success(`${remoteUserName} joined the meeting`);
       remoteSocketId.current = socketId;
