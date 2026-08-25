@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { SOCKET_URL } from '../services/api';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { Button, Card, Typography, Space, Input, message, Spin } from 'antd';
 import { VideoCameraOutlined, AudioOutlined, AudioMutedOutlined, PhoneOutlined, CopyOutlined, ShareAltOutlined, CameraOutlined, EditOutlined, CheckOutlined, CloseOutlined, ClearOutlined, EnvironmentOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
@@ -97,12 +98,136 @@ const VideoCall = () => {
   const remoteVideoRef = useRef(null);
   const peerConnection = useRef(null);
   const remoteSocketId = useRef(null);
+  const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
+  const iceCandidatesQueue = useRef([]);
+  const audioContextRef = useRef(null);
+  const [remoteAudioLevel, setRemoteAudioLevel] = useState(0);
 
   const servers = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
     ],
+  };
+
+  // Direct WebAudio Speaker Pipeline (bypasses video element audio quirks)
+  const setupWebAudioPlayback = (stream) => {
+    if (!stream || stream.getAudioTracks().length === 0) return;
+
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioCtx();
+      }
+      const ctx = audioContextRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+
+      const audioTrack = stream.getAudioTracks()[0];
+      const audioStream = new MediaStream([audioTrack]);
+      const source = ctx.createMediaStreamSource(audioStream);
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.5;
+
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = 1.0;
+
+      source.connect(analyser);
+      analyser.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateLevel = () => {
+        if (!audioContextRef.current) return;
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
+        }
+        const avg = sum / dataArray.length;
+        setRemoteAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+        requestAnimationFrame(updateLevel);
+      };
+      updateLevel();
+
+      console.log('✅ WebAudio direct speaker pipeline active & connected to sound card!');
+    } catch (err) {
+      console.warn('WebAudio direct playback notice:', err);
+    }
+  };
+
+  const playSpeakerTestChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioCtx();
+      }
+      const ctx = audioContextRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+
+      // Play a quick pleasant 440Hz / 880Hz chime
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
+
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.muted = false;
+        remoteVideoRef.current.volume = 1.0;
+        remoteVideoRef.current.play().catch(() => {});
+      }
+
+      message.success('🔊 Speaker test sound played! WebAudio active.');
+    } catch (e) {
+      console.warn('Speaker test error:', e);
+    }
+  };
+
+  const attachStreamToElement = (videoElement, stream) => {
+    if (!videoElement || !stream) return;
+
+    if (videoElement.srcObject !== stream) {
+      videoElement.srcObject = stream;
+    }
+
+    videoElement.muted = false;
+    videoElement.volume = 1.0;
+
+    const audioTracks = stream.getAudioTracks();
+    console.log(`🔊 Stream attached. Audio tracks: ${audioTracks.length}, Video tracks: ${stream.getVideoTracks().length}`);
+
+    // Activate direct WebAudio playback
+    if (audioTracks.length > 0) {
+      setupWebAudioPlayback(stream);
+    }
+
+    const playPromise = videoElement.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(err => {
+        if (err.name !== 'AbortError') {
+          console.warn('Playback error (waiting for user gesture):', err.message);
+        }
+      });
+    }
   };
 
   useEffect(() => {
@@ -118,24 +243,32 @@ const VideoCall = () => {
     const fetchMeetingDetails = async () => {
       try {
         const response = await getMeetingByRoomId(roomId);
-        if (response.success && response.data.claimId) {
+        if (response && response.success && response.data?.claimId) {
           setClaimId(response.data.claimId._id);
         }
       } catch (error) {
-        console.error('Error fetching meeting details:', error);
+        // Silent for arbitrary test rooms
+        console.log('Meeting details notice (test room):', error.message || error);
       }
     };
 
     fetchMeetingDetails();
 
     // Initialize socket
-    const newSocket = io(import.meta.env.VITE_API_URL || 'http://localhost:5000');
+    const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
 
     return () => {
       if (newSocket) newSocket.disconnect();
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnection.current) {
+        peerConnection.current.close();
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
       }
     };
   }, [roomId]);
@@ -150,24 +283,180 @@ const VideoCall = () => {
   // Update remote video when remoteStream changes
   useEffect(() => {
     if (remoteStream && remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream;
+      attachStreamToElement(remoteVideoRef.current, remoteStream);
     }
   }, [remoteStream]);
+
+  const processQueuedIceCandidates = async () => {
+    while (iceCandidatesQueue.current.length > 0) {
+      const cand = iceCandidatesQueue.current.shift();
+      try {
+        if (peerConnection.current && peerConnection.current.remoteDescription) {
+          await peerConnection.current.addIceCandidate(new RTCIceCandidate(cand));
+          console.log('✅ Queued ICE Candidate added successfully');
+        }
+      } catch (e) {
+        console.error('Error adding queued ICE candidate:', e);
+      }
+    }
+  };
+
+  const initializePeerConnection = () => {
+    if (peerConnection.current) {
+      peerConnection.current.close();
+    }
+
+    const pc = new RTCPeerConnection(servers);
+    peerConnection.current = pc;
+    iceCandidatesQueue.current = [];
+
+    // Add local stream tracks (both audio and video)
+    const stream = localStreamRef.current || localStream;
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        console.log(`Adding local track to peer connection: ${track.kind}, enabled=${track.enabled}`);
+        pc.addTrack(track, stream);
+      });
+    }
+
+    // Handle remote stream tracks
+    pc.ontrack = (event) => {
+      console.log(`Remote track received: kind=${event.track.kind}, id=${event.track.id}`);
+
+      let incomingStream = remoteStreamRef.current;
+      if (!incomingStream) {
+        incomingStream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream();
+        remoteStreamRef.current = incomingStream;
+      }
+
+      if (!incomingStream.getTracks().some(t => t.id === event.track.id)) {
+        incomingStream.addTrack(event.track);
+      }
+
+      setRemoteStream(incomingStream);
+
+      if (remoteVideoRef.current) {
+        attachStreamToElement(remoteVideoRef.current, incomingStream);
+      }
+    };
+
+    // Handle ICE candidates
+    pc.onicecandidate = (event) => {
+      if (event.candidate && remoteSocketId.current && socket) {
+        socket.emit('signal', {
+          to: remoteSocketId.current,
+          signal: { candidate: event.candidate },
+          from: socket.id,
+        });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('WebRTC Connection state:', pc.connectionState);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('WebRTC ICE Connection state:', pc.iceConnectionState);
+    };
+
+    return pc;
+  };
+
+  const createOffer = async (targetSocketId) => {
+    const pc = initializePeerConnection();
+
+    try {
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+      await pc.setLocalDescription(offer);
+
+      socket.emit('signal', {
+        to: targetSocketId,
+        signal: offer,
+        from: socket.id,
+      });
+    } catch (err) {
+      console.error('Error creating offer:', err);
+    }
+  };
+
+  const handleOffer = async (offer, from) => {
+    remoteSocketId.current = from;
+    const pc = initializePeerConnection();
+
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await processQueuedIceCandidates();
+
+      const answer = await pc.createAnswer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+      await pc.setLocalDescription(answer);
+
+      socket.emit('signal', {
+        to: from,
+        signal: answer,
+        from: socket.id,
+      });
+    } catch (err) {
+      console.error('Error handling offer:', err);
+    }
+  };
+
+  const handleAnswer = async (answer) => {
+    if (peerConnection.current) {
+      try {
+        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
+        await processQueuedIceCandidates();
+      } catch (err) {
+        console.error('Error handling answer:', err);
+      }
+    }
+  };
+
+  const handleIceCandidate = async (candidate) => {
+    if (!candidate || !candidate.candidate) return;
+
+    if (peerConnection.current && peerConnection.current.remoteDescription && peerConnection.current.remoteDescription.type) {
+      try {
+        await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate.candidate));
+      } catch (err) {
+        console.error('Error adding received ICE candidate:', err);
+      }
+    } else {
+      console.log('Queuing ICE candidate until remote description is set');
+      iceCandidatesQueue.current.push(candidate.candidate);
+    }
+  };
 
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('user-connected', async ({ userId, userName: remoteUserName, socketId }) => {
-      message.success(`${remoteUserName} joined the meeting`);
-      remoteSocketId.current = socketId;
-
-      // Create offer for new user
-      if (role === 'doctor') {
-        await createOffer(socketId);
+    // When this user joins and there are existing users, this user initiates the offer
+    socket.on('existing-users', async (existingUsers) => {
+      console.log('Existing users in room:', existingUsers);
+      if (existingUsers && existingUsers.length > 0) {
+        const otherUser = existingUsers[0];
+        remoteSocketId.current = otherUser.socketId;
+        message.info(`${otherUser.userName || 'Participant'} is already in the room. Connecting...`);
+        
+        // The newcomer always creates the offer to connect to the existing user
+        await createOffer(otherUser.socketId);
       }
     });
 
+    // When an existing user receives a new participant notification, wait for their offer
+    socket.on('user-connected', ({ userId, userName: remoteUserName, socketId }) => {
+      console.log('New user connected to room:', remoteUserName, socketId);
+      message.success(`${remoteUserName} joined the meeting`);
+      remoteSocketId.current = socketId;
+    });
+
     socket.on('signal', async ({ signal, from }) => {
+      console.log('Signal received from:', from, signal.type || (signal.candidate ? 'candidate' : 'unknown'));
       if (signal.type === 'offer') {
         await handleOffer(signal, from);
       } else if (signal.type === 'answer') {
@@ -180,81 +469,31 @@ const VideoCall = () => {
     socket.on('user-disconnected', ({ userName: disconnectedUser }) => {
       message.info(`${disconnectedUser} left the meeting`);
       setRemoteStream(null);
+      remoteStreamRef.current = null;
     });
 
+    // Unblock browser autoplay on any page click if previously blocked
+    const handleUserInteraction = () => {
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        remoteVideoRef.current.muted = false;
+        remoteVideoRef.current.volume = 1.0;
+        if (remoteVideoRef.current.paused) {
+          remoteVideoRef.current.play().catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('click', handleUserInteraction);
+    window.addEventListener('touchstart', handleUserInteraction);
+
     return () => {
+      socket.off('existing-users');
       socket.off('user-connected');
       socket.off('signal');
       socket.off('user-disconnected');
+      window.removeEventListener('click', handleUserInteraction);
+      window.removeEventListener('touchstart', handleUserInteraction);
     };
-  }, [socket, localStream, role]);
-
-  const initializePeerConnection = () => {
-    peerConnection.current = new RTCPeerConnection(servers);
-
-    // Add local stream tracks
-    if (localStream) {
-      localStream.getTracks().forEach(track => {
-        peerConnection.current.addTrack(track, localStream);
-      });
-    }
-
-    // Handle remote stream
-    peerConnection.current.ontrack = (event) => {
-      console.log('Remote track received:', event.streams);
-      const [stream] = event.streams;
-      setRemoteStream(stream);
-    };
-
-    // Handle ICE candidates
-    peerConnection.current.onicecandidate = (event) => {
-      if (event.candidate && remoteSocketId.current) {
-        socket.emit('signal', {
-          to: remoteSocketId.current,
-          signal: { candidate: event.candidate },
-          from: socket.id,
-        });
-      }
-    };
-  };
-
-  const createOffer = async (targetSocketId) => {
-    initializePeerConnection();
-
-    const offer = await peerConnection.current.createOffer();
-    await peerConnection.current.setLocalDescription(offer);
-
-    socket.emit('signal', {
-      to: targetSocketId,
-      signal: offer,
-      from: socket.id,
-    });
-  };
-
-  const handleOffer = async (offer, from) => {
-    remoteSocketId.current = from;
-    initializePeerConnection();
-
-    await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await peerConnection.current.createAnswer();
-    await peerConnection.current.setLocalDescription(answer);
-
-    socket.emit('signal', {
-      to: from,
-      signal: answer,
-      from: socket.id,
-    });
-  };
-
-  const handleAnswer = async (answer) => {
-    await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
-  };
-
-  const handleIceCandidate = async (candidate) => {
-    if (peerConnection.current && candidate.candidate) {
-      await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate.candidate));
-    }
-  };
+  }, [socket]);
 
   const joinMeeting = async () => {
     if (!userName.trim()) {
@@ -264,7 +503,7 @@ const VideoCall = () => {
 
     setLoading(true);
     try {
-      // Get user media
+      // Get user media with full audio settings
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280 },
@@ -273,11 +512,19 @@ const VideoCall = () => {
         },
         audio: {
           echoCancellation: true,
-          noiseSuppression: true
+          noiseSuppression: true,
+          autoGainControl: true,
         }
       });
 
+      // Ensure all audio tracks are active
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+        console.log(`Microphone ready: ${track.label}, enabled: ${track.enabled}`);
+      });
+
       console.log('Local stream obtained:', stream.getTracks());
+      localStreamRef.current = stream;
       setLocalStream(stream);
 
       // Join room via socket
@@ -316,20 +563,26 @@ const VideoCall = () => {
   };
 
   const toggleMute = () => {
-    if (localStream) {
-      localStream.getAudioTracks().forEach(track => {
-        track.enabled = !track.enabled;
+    const stream = localStreamRef.current || localStream;
+    if (stream) {
+      const nextState = !isMuted;
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = !nextState;
       });
-      setIsMuted(!isMuted);
+      setIsMuted(nextState);
+      message.info(nextState ? 'Microphone muted' : 'Microphone unmuted');
     }
   };
 
   const toggleVideo = () => {
-    if (localStream) {
-      localStream.getVideoTracks().forEach(track => {
-        track.enabled = !track.enabled;
+    const stream = localStreamRef.current || localStream;
+    if (stream) {
+      const nextState = !isVideoOff;
+      stream.getVideoTracks().forEach(track => {
+        track.enabled = !nextState;
       });
-      setIsVideoOff(!isVideoOff);
+      setIsVideoOff(nextState);
+      message.info(nextState ? 'Camera turned off' : 'Camera turned on');
     }
   };
 
@@ -739,8 +992,8 @@ const VideoCall = () => {
         console.log('✅ Added screen audio to recording');
       }
 
-      // Add doctor's microphone audio (THIS IS THE FIX!)
-      const localAudioTracks = localStream.getAudioTracks();
+      // Add doctor's microphone audio
+      const localAudioTracks = (localStreamRef.current || localStream)?.getAudioTracks() || [];
       if (localAudioTracks.length > 0) {
         const micAudioSource = audioContext.createMediaStreamSource(
           new MediaStream([localAudioTracks[0]])
@@ -749,6 +1002,16 @@ const VideoCall = () => {
         console.log('✅ Added doctor microphone audio to recording');
       } else {
         console.warn('⚠️ No microphone audio track found');
+      }
+
+      // Add remote user's audio to recording if available
+      const currentRemoteStream = remoteStreamRef.current || remoteStream;
+      if (currentRemoteStream && currentRemoteStream.getAudioTracks().length > 0) {
+        const remoteAudioSource = audioContext.createMediaStreamSource(
+          new MediaStream([currentRemoteStream.getAudioTracks()[0]])
+        );
+        remoteAudioSource.connect(destination);
+        console.log('✅ Added remote participant audio to recording');
       }
 
       // Add the mixed audio track to combined stream
@@ -1019,12 +1282,12 @@ const VideoCall = () => {
               objectFit: 'cover',
             }}
           />
-          {/* Remote Video Label */}
+          {/* Remote Video Label with Live Voice Level Meter */}
           <div style={{
             position: 'absolute',
             top: '20px',
             left: '20px',
-            background: 'rgba(0, 0, 0, 0.6)',
+            background: 'rgba(0, 0, 0, 0.7)',
             backdropFilter: 'blur(10px)',
             color: '#ffffff',
             padding: '8px 16px',
@@ -1032,8 +1295,23 @@ const VideoCall = () => {
             fontSize: '14px',
             fontWeight: 500,
             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
           }}>
-            🟢 Remote User
+            <span>🟢 Remote User</span>
+            <span style={{
+              color: remoteAudioLevel > 3 ? '#34d399' : '#9ca3af',
+              fontSize: '12px',
+              fontWeight: 600,
+              padding: '3px 8px',
+              background: remoteAudioLevel > 3 ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.1)',
+              borderRadius: '4px',
+              border: remoteAudioLevel > 3 ? '1px solid rgba(52, 211, 153, 0.5)' : '1px solid transparent',
+              transition: 'all 0.15s ease'
+            }}>
+              {remoteAudioLevel > 3 ? `🔊 Voice Active (${remoteAudioLevel}%)` : '🔈 Audio Connected'}
+            </span>
           </div>
           {/* Capture Patient Image Button */}
           {role === 'doctor' && (
@@ -1254,6 +1532,23 @@ const VideoCall = () => {
             width: '50px',
           }}
         />
+
+        <Button
+          size="large"
+          onClick={playSpeakerTestChime}
+          style={{
+            background: 'rgba(255, 255, 255, 0.15)',
+            color: '#ffffff',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            borderRadius: '8px',
+            height: '50px',
+            padding: '0 16px',
+            fontWeight: 500,
+          }}
+          title="Test speaker output & unmute audio"
+        >
+          🔊 Test Audio
+        </Button>
 
         {role === 'doctor' && (
           <>

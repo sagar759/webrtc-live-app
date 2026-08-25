@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Typography, Space, ConfigProvider, Badge, Modal, Form, Input, message, Steps, Upload, Select, DatePicker, Table, Tag } from 'antd';
 import { LogoutOutlined, UserOutlined, VideoCameraOutlined, TeamOutlined, SettingOutlined, PlusOutlined, InboxOutlined, FileAddOutlined, SearchOutlined, FilterOutlined, FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined, LockOutlined, CopyOutlined, LinkOutlined, DownloadOutlined, FilePdfOutlined, ReloadOutlined, ClockCircleOutlined } from '@ant-design/icons';
-import { adminLogin, registerDoctor, createClaim, getAllClaims, createMeeting, getMeetingByClaimId } from '../services/api';
+import { adminLogin, registerDoctor, createClaim, getAllClaims, createMeeting, getMeetingByClaimId, API_BASE_URL } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
 
 const { Title, Text } = Typography;
@@ -419,7 +419,7 @@ function Home() {
       message.loading({ content: 'Generating PDF...', key: 'pdf' });
 
       // Download PDF directly
-      const pdfUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/claims/${record.claimId}/pdf`;
+      const pdfUrl = `${API_BASE_URL}/claims/${record.claimId}/pdf`;
 
       // Create temporary link and trigger download
       const link = document.createElement('a');

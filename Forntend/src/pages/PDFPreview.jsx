@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card, Typography, Space, message, Spin } from 'antd';
 import { DownloadOutlined, ArrowLeftOutlined, FilePdfOutlined, HomeOutlined } from '@ant-design/icons';
+import { API_BASE_URL } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
 
 const { Title, Text } = Typography;
@@ -16,7 +17,7 @@ const PDFPreview = () => {
   useEffect(() => {
     if (claimId) {
       // Set PDF URL
-      const url = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/claims/${claimId}/pdf`;
+      const url = `${API_BASE_URL}/claims/${claimId}/pdf`;
       setPdfUrl(url);
       setLoading(false);
     } else {

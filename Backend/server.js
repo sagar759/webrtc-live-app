@@ -77,12 +77,20 @@ io.on('connection', (socket) => {
       rooms.set(roomId, new Map());
     }
     
+    const existingUsers = [];
+    rooms.get(roomId).forEach((user, socketId) => {
+      existingUsers.push({ socketId, ...user });
+    });
+
     rooms.get(roomId).set(socket.id, { userId, userName, role });
     
+    // Send list of existing users to the newly joined participant
+    socket.emit('existing-users', existingUsers);
+
     // Notify others in the room
     socket.to(roomId).emit('user-connected', { userId, userName, role, socketId: socket.id });
     
-    console.log(`${userName} (${role}) joined room: ${roomId}`);
+    console.log(`${userName} (${role}) joined room: ${roomId} (Existing users: ${existingUsers.length})`);
   });
 
   socket.on('signal', ({ to, signal, from }) => {
