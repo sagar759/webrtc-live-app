@@ -2,9 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { SOCKET_URL } from '../services/api';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { Button, Card, Typography, Space, Input, message, Spin, Select, Modal } from 'antd';
-import { VideoCameraOutlined, AudioOutlined, AudioMutedOutlined, PhoneOutlined, CopyOutlined, ShareAltOutlined, CameraOutlined, EditOutlined, CheckOutlined, CloseOutlined, ClearOutlined, EnvironmentOutlined, PlayCircleOutlined, StopOutlined, SettingOutlined } from '@ant-design/icons';
+import { VideoCameraOutlined, AudioOutlined, AudioMutedOutlined, PhoneOutlined, CopyOutlined, ShareAltOutlined, CameraOutlined, EnvironmentOutlined, PlayCircleOutlined, StopOutlined, SettingOutlined } from '@ant-design/icons';
 import io from 'socket.io-client';
-import { getMeetingByRoomId, uploadCapturedImage, uploadSignature, saveLocation, uploadRecording, completeMeetingByRoomId, startMeetingByRoomId } from '../services/api';
+import { getMeetingByRoomId, uploadCapturedImage, saveLocation, uploadRecording, completeMeetingByRoomId, startMeetingByRoomId } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
 
 // Add global styles for animations and responsive design
@@ -82,13 +82,9 @@ const VideoCall = () => {
   const [loading, setLoading] = useState(false);
   const [claimId, setClaimId] = useState(null);
   const [capturing, setCapturing] = useState(false);
-  const [showSignaturePad, setShowSignaturePad] = useState(false);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [signatureType, setSignatureType] = useState(null); // 'doctor' or 'patient'
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
 
-  const signatureCanvasRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
   const recordingIntervalRef = useRef(null);
@@ -872,61 +868,6 @@ const VideoCall = () => {
     }
   };
 
-  const openSignaturePad = (type) => {
-    setSignatureType(type);
-    setShowSignaturePad(true);
-  };
-
-  const closeSignaturePad = () => {
-    setShowSignaturePad(false);
-    setSignatureType(null);
-    clearSignature();
-  };
-
-  const clearSignature = () => {
-    const canvas = signatureCanvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-  };
-
-  const startDrawing = (e) => {
-    const canvas = signatureCanvasRef.current;
-    if (!canvas) return;
-
-    setIsDrawing(true);
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
-    const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
-
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
-
-  const draw = (e) => {
-    if (!isDrawing) return;
-
-    const canvas = signatureCanvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
-    const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
-
-    ctx.lineTo(x, y);
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-  };
-
-  const stopDrawing = () => {
-    setIsDrawing(false);
-  };
-
   // Silent location capture (no loading messages, runs in background)
   const captureLocationSilently = async (locationType) => {
     if (!claimId || !navigator.geolocation) {
@@ -1073,66 +1014,6 @@ const VideoCall = () => {
     }
   };
 
-  const saveSignature = async () => {
-    const canvas = signatureCanvasRef.current;
-    if (!canvas || !claimId) {
-      message.error('Unable to save signature');
-      return;
-    }
-
-    // Check if canvas is empty
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const isEmpty = !imageData.data.some(channel => channel !== 0);
-
-    if (isEmpty) {
-      message.error('Please draw your signature first!');
-      return;
-    }
-
-    setLoading(true);
-    const hideMsg = message.loading('💾 Saving signature...', 0);
-
-    try {
-      // Convert canvas to blob
-      const blob = await new Promise((resolve) => {
-        canvas.toBlob(resolve, 'image/png', 1.0);
-      });
-
-      // Get signer name
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      const signerName = signatureType === 'doctor' ? user.name : userName;
-      const token = signatureType === 'doctor' ? user.token : null;
-
-      console.log('Saving signature:', {
-        claimId,
-        signatureType,
-        signerName
-      });
-
-      // Upload signature
-      const response = await uploadSignature(claimId, blob, signatureType, signerName, token);
-
-      hideMsg();
-
-      if (response.success) {
-        message.success({
-          content: `✅ ${signatureType === 'doctor' ? 'Your' : 'Patient\'s'} signature saved to Claim ${response.data.claimId}!`,
-          duration: 3,
-        });
-        closeSignaturePad();
-      }
-    } catch (error) {
-      hideMsg();
-      console.error('Error saving signature:', error);
-      message.error({
-        content: error.message || 'Failed to save signature',
-        duration: 4,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const startRecording = async () => {
     if (!claimId) {
@@ -1764,22 +1645,6 @@ const VideoCall = () => {
             </Button>
             <Button
               size="large"
-              icon={<EditOutlined />}
-              onClick={() => openSignaturePad('doctor')}
-              style={{
-                background: '#3b82f6',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                height: '50px',
-                padding: '0 20px',
-                fontWeight: 600,
-              }}
-            >
-              My Sign
-            </Button>
-            <Button
-              size="large"
               icon={<EnvironmentOutlined />}
               onClick={() => captureLocation('doctor')}
               style={{
@@ -1799,22 +1664,6 @@ const VideoCall = () => {
 
         {remoteStream && (
           <>
-            <Button
-              size="large"
-              icon={<EditOutlined />}
-              onClick={() => openSignaturePad('patient')}
-              style={{
-                background: '#8b5cf6',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                height: '50px',
-                padding: '0 20px',
-                fontWeight: 600,
-              }}
-            >
-              Patient Sign
-            </Button>
             <Button
               size="large"
               icon={<EnvironmentOutlined />}
@@ -1955,101 +1804,6 @@ const VideoCall = () => {
           </div>
         </div>
       </Modal>
-
-      {/* Signature Pad Modal */}
-      {showSignaturePad && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0,0,0,0.8)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000,
-        }}>
-          <Card style={{
-            width: '90%',
-            maxWidth: '600px',
-            borderRadius: '16px',
-            border: '2px solid #10b981',
-          }}>
-            <Title level={4} style={{ marginBottom: '16px', color: '#000000' }}>
-              ✍️ {signatureType === 'doctor' ? 'Doctor Signature' : 'Patient Signature'}
-            </Title>
-
-            <Text style={{ display: 'block', marginBottom: '16px', color: '#6b7280' }}>
-              Draw your signature below using mouse or touch:
-            </Text>
-
-            <div style={{
-              border: '2px dashed #10b981',
-              borderRadius: '8px',
-              background: '#ffffff',
-              marginBottom: '16px',
-              cursor: 'crosshair',
-            }}>
-              <canvas
-                ref={signatureCanvasRef}
-                width={560}
-                height={200}
-                onMouseDown={startDrawing}
-                onMouseMove={draw}
-                onMouseUp={stopDrawing}
-                onMouseLeave={stopDrawing}
-                onTouchStart={startDrawing}
-                onTouchMove={draw}
-                onTouchEnd={stopDrawing}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  height: '200px',
-                }}
-              />
-            </div>
-
-            <Space size="middle" style={{ width: '100%', justifyContent: 'flex-end' }}>
-              <Button
-                icon={<ClearOutlined />}
-                onClick={clearSignature}
-                style={{
-                  borderRadius: '8px',
-                  height: '40px',
-                }}
-              >
-                Clear
-              </Button>
-              <Button
-                icon={<CloseOutlined />}
-                onClick={closeSignaturePad}
-                style={{
-                  borderRadius: '8px',
-                  height: '40px',
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="primary"
-                icon={<CheckOutlined />}
-                onClick={saveSignature}
-                loading={loading}
-                style={{
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  height: '40px',
-                  fontWeight: 600,
-                }}
-              >
-                Save Signature
-              </Button>
-            </Space>
-          </Card>
-        </div>
-      )}
     </div>
   );
 };
