@@ -6,6 +6,7 @@ import { VideoCameraOutlined, AudioOutlined, AudioMutedOutlined, PhoneOutlined, 
 import io from 'socket.io-client';
 import { getMeetingByRoomId, uploadCapturedImage, saveLocation, uploadRecording, completeMeetingByRoomId, startMeetingByRoomId } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
+import LocationPickerModal from '../components/LocationPickerModal';
 
 // Add global styles for animations and responsive design
 const globalStyles = `
@@ -84,6 +85,9 @@ const VideoCall = () => {
   const [capturing, setCapturing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [locationModalVisible, setLocationModalVisible] = useState(false);
+  const [locationModalType, setLocationModalType] = useState('doctor');
+  const [locationModalCoords, setLocationModalCoords] = useState(null);
 
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
@@ -547,43 +551,13 @@ const VideoCall = () => {
     socket.on('request-patient-location', async ({ claimId: reqClaimId }) => {
       console.log('Received remote request to capture patient location');
       const targetClaimId = reqClaimId || claimId;
-      if (targetClaimId && role === 'patient') {
-        try {
-          message.loading({ content: '📍 Verifying your GPS location...', key: 'patLocCapture', duration: 3 });
-          const position = await new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 10000,
-              maximumAge: 0
-            });
-          });
-
-          const { latitude, longitude, accuracy } = position.coords;
-          const user = JSON.parse(localStorage.getItem('user') || '{}');
-          const locationUserName = userName || 'Patient';
-
-          const res = await saveLocation(
-            targetClaimId,
-            'patient',
-            locationUserName,
-            latitude,
-            longitude,
-            accuracy,
-            null,
-            null
-          );
-
-          if (res && res.success) {
-            message.success({ content: `✅ Location verified! (Lat: ${latitude.toFixed(6)}, Long: ${longitude.toFixed(6)})`, key: 'patLocCapture' });
-            socket.emit('patient-location-updated', {
-              roomId,
-              location: res.data?.location || { latitude, longitude, accuracy, address: res.data?.address }
-            });
-          }
-        } catch (err) {
-          console.error('Failed to capture requested patient location:', err);
-          message.error({ content: 'Could not access GPS. Please allow location access.', key: 'patLocCapture' });
-        }
+      if (role === 'patient') {
+        message.info({
+          content: '📍 Doctor requested location verification. Please confirm your exact location on the map.',
+          duration: 5
+        });
+        setLocationModalType('patient');
+        setLocationModalVisible(true);
       }
     });
 
@@ -919,6 +893,55 @@ const VideoCall = () => {
     }
   };
 
+  const handleConfirmLocation = async ({ locationType, latitude, longitude, accuracy, address }) => {
+    if (!claimId) {
+      message.error('Claim ID not found');
+      return;
+    }
+
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const locationUserName = locationType === 'doctor' ? (user.name || userName || 'Doctor') : (userName || 'Patient');
+    const token = locationType === 'doctor' ? user.token : null;
+
+    const hideSaveMsg = message.loading(`💾 Saving verified ${locationType} location...`, 0);
+
+    try {
+      const response = await saveLocation(
+        claimId,
+        locationType,
+        locationUserName,
+        latitude,
+        longitude,
+        accuracy,
+        address,
+        token
+      );
+
+      hideSaveMsg();
+
+      if (response && response.success) {
+        message.success({
+          content: `✅ ${locationType === 'doctor' ? 'Doctor' : 'Patient'} exact location verified & saved! (Lat: ${latitude.toFixed(6)}, Long: ${longitude.toFixed(6)})`,
+          duration: 5,
+        });
+
+        // Notify room if patient confirmed location
+        if (socket) {
+          socket.emit('patient-location-updated', {
+            roomId,
+            location: response.data?.location || { latitude, longitude, accuracy, address }
+          });
+        }
+      } else {
+        message.error(response?.message || 'Failed to save location');
+      }
+    } catch (error) {
+      hideSaveMsg();
+      console.error('Error saving location:', error);
+      message.error(error.message || 'Failed to save location');
+    }
+  };
+
   const captureLocation = async (locationType) => {
     if (!claimId) {
       message.error('Claim ID not found');
@@ -936,82 +959,9 @@ const VideoCall = () => {
       return;
     }
 
-    if (!navigator.geolocation) {
-      message.error('Geolocation is not supported by your browser');
-      return;
-    }
-
-    const hideMsg = message.loading(`📍 Getting ${locationType === 'doctor' ? 'doctor' : 'patient'} GPS coordinates...`, 0);
-
-    try {
-      // Get current position with high accuracy
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 12000,
-          maximumAge: 0
-        });
-      });
-
-      const { latitude, longitude, accuracy } = position.coords;
-
-      console.log('Location captured:', {
-        locationType,
-        latitude,
-        longitude,
-        accuracy
-      });
-
-      // Get user info
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      const locationUserName = locationType === 'doctor' ? user.name || userName || 'Doctor' : userName || 'Patient';
-      const token = locationType === 'doctor' ? user.token : null;
-
-      hideMsg();
-      const hideSaveMsg = message.loading('💾 Saving exact coordinates to MongoDB Atlas...', 0);
-
-      // Save location to backend
-      const response = await saveLocation(
-        claimId,
-        locationType,
-        locationUserName,
-        latitude,
-        longitude,
-        accuracy,
-        null, // backend will auto reverse-geocode
-        token
-      );
-
-      hideSaveMsg();
-
-      if (response.success) {
-        message.success({
-          content: `✅ ${locationType === 'doctor' ? 'Doctor' : 'Patient'} exact coordinates saved! (Lat: ${latitude.toFixed(6)}, Long: ${longitude.toFixed(6)})`,
-          duration: 5,
-        });
-
-        // Notify room if patient captured location
-        if (locationType === 'patient' && socket) {
-          socket.emit('patient-location-updated', {
-            roomId,
-            location: response.data?.location || { latitude, longitude, accuracy, address: response.data?.location?.address }
-          });
-        }
-      }
-    } catch (error) {
-      hideMsg();
-      console.error('Error capturing location:', error);
-
-      if (error.code === 1) {
-        message.error('Location permission denied. Please allow location access in your browser settings.');
-      } else if (error.code === 2) {
-        message.error('Location unavailable. Please check your device GPS.');
-      } else if (error.code === 3) {
-        message.error('Location request timed out. Please try again.');
-      } else {
-        message.error(error.message || 'Failed to capture location');
-      }
-    }
+    // Open high-standard location verification modal with map
+    setLocationModalType(locationType);
+    setLocationModalVisible(true);
   };
 
 
@@ -1804,6 +1754,15 @@ const VideoCall = () => {
           </div>
         </div>
       </Modal>
+      {/* Location Picker & Verification Modal */}
+      <LocationPickerModal
+        visible={locationModalVisible}
+        locationType={locationModalType}
+        initialCoords={locationModalCoords}
+        userName={userName}
+        onClose={() => setLocationModalVisible(false)}
+        onConfirm={handleConfirmLocation}
+      />
     </div>
   );
 };
