@@ -547,6 +547,63 @@ const VideoCall = () => {
       }
     });
 
+    // Remote request to capture patient location on patient's device
+    socket.on('request-patient-location', async ({ claimId: reqClaimId }) => {
+      console.log('Received remote request to capture patient location');
+      const targetClaimId = reqClaimId || claimId;
+      if (targetClaimId && role === 'patient') {
+        try {
+          message.loading({ content: '📍 Verifying your GPS location...', key: 'patLocCapture', duration: 3 });
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 0
+            });
+          });
+
+          const { latitude, longitude, accuracy } = position.coords;
+          const user = JSON.parse(localStorage.getItem('user') || '{}');
+          const locationUserName = userName || 'Patient';
+
+          const res = await saveLocation(
+            targetClaimId,
+            'patient',
+            locationUserName,
+            latitude,
+            longitude,
+            accuracy,
+            null,
+            null
+          );
+
+          if (res && res.success) {
+            message.success({ content: `✅ Location verified! (Lat: ${latitude.toFixed(6)}, Long: ${longitude.toFixed(6)})`, key: 'patLocCapture' });
+            socket.emit('patient-location-updated', {
+              roomId,
+              location: res.data?.location || { latitude, longitude, accuracy, address: res.data?.address }
+            });
+          }
+        } catch (err) {
+          console.error('Failed to capture requested patient location:', err);
+          message.error({ content: 'Could not access GPS. Please allow location access.', key: 'patLocCapture' });
+        }
+      }
+    });
+
+    // Notification for doctor when patient location is updated
+    socket.on('patient-location-updated', ({ location: patLoc }) => {
+      console.log('Received patient-location-updated notification:', patLoc);
+      if (patLoc && patLoc.latitude && patLoc.longitude) {
+        message.success({
+          content: `✅ Patient's exact GPS location verified & saved! (Lat: ${Number(patLoc.latitude).toFixed(6)}, Long: ${Number(patLoc.longitude).toFixed(6)})`,
+          duration: 5,
+        });
+      } else {
+        message.success('✅ Patient\'s location verified & saved to MongoDB Atlas!');
+      }
+    });
+
     socket.on('user-disconnected', ({ userName: disconnectedUser }) => {
       message.info(`${disconnectedUser} left the meeting`);
       setRemoteStream(null);
@@ -570,11 +627,13 @@ const VideoCall = () => {
       socket.off('existing-users');
       socket.off('user-connected');
       socket.off('signal');
+      socket.off('request-patient-location');
+      socket.off('patient-location-updated');
       socket.off('user-disconnected');
       window.removeEventListener('click', handleUserInteraction);
       window.removeEventListener('touchstart', handleUserInteraction);
     };
-  }, [socket]);
+  }, [socket, claimId, role, roomId, userName]);
 
   const joinMeeting = async () => {
     if (!userName.trim()) {
@@ -925,19 +984,30 @@ const VideoCall = () => {
       return;
     }
 
+    // If Doctor is requesting Patient's location during an active call, request it from patient's device
+    if (locationType === 'patient' && role === 'doctor' && socket) {
+      socket.emit('request-patient-location', { roomId, claimId });
+      message.loading({
+        content: '📡 Requesting exact GPS location from Patient\'s device...',
+        key: 'patLocReq',
+        duration: 4
+      });
+      return;
+    }
+
     if (!navigator.geolocation) {
       message.error('Geolocation is not supported by your browser');
       return;
     }
 
-    const hideMsg = message.loading(`📍 Getting ${locationType} location...`, 0);
+    const hideMsg = message.loading(`📍 Getting ${locationType === 'doctor' ? 'doctor' : 'patient'} GPS coordinates...`, 0);
 
     try {
-      // Get current position
+      // Get current position with high accuracy
       const position = await new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
-          timeout: 10000,
+          timeout: 12000,
           maximumAge: 0
         });
       });
@@ -953,11 +1023,11 @@ const VideoCall = () => {
 
       // Get user info
       const user = JSON.parse(localStorage.getItem('user') || '{}');
-      const locationUserName = locationType === 'doctor' ? user.name : userName;
+      const locationUserName = locationType === 'doctor' ? user.name || userName || 'Doctor' : userName || 'Patient';
       const token = locationType === 'doctor' ? user.token : null;
 
       hideMsg();
-      const hideSaveMsg = message.loading('💾 Saving location to database...', 0);
+      const hideSaveMsg = message.loading('💾 Saving exact coordinates to MongoDB Atlas...', 0);
 
       // Save location to backend
       const response = await saveLocation(
@@ -967,7 +1037,7 @@ const VideoCall = () => {
         latitude,
         longitude,
         accuracy,
-        null, // address
+        null, // backend will auto reverse-geocode
         token
       );
 
@@ -975,20 +1045,28 @@ const VideoCall = () => {
 
       if (response.success) {
         message.success({
-          content: `✅ ${locationType === 'doctor' ? 'Your' : 'Patient\'s'} location saved! (Lat: ${latitude.toFixed(6)}, Long: ${longitude.toFixed(6)})`,
-          duration: 4,
+          content: `✅ ${locationType === 'doctor' ? 'Doctor' : 'Patient'} exact coordinates saved! (Lat: ${latitude.toFixed(6)}, Long: ${longitude.toFixed(6)})`,
+          duration: 5,
         });
+
+        // Notify room if patient captured location
+        if (locationType === 'patient' && socket) {
+          socket.emit('patient-location-updated', {
+            roomId,
+            location: response.data?.location || { latitude, longitude, accuracy, address: response.data?.location?.address }
+          });
+        }
       }
     } catch (error) {
       hideMsg();
       console.error('Error capturing location:', error);
 
       if (error.code === 1) {
-        message.error('Location permission denied. Please allow location access.');
+        message.error('Location permission denied. Please allow location access in your browser settings.');
       } else if (error.code === 2) {
-        message.error('Location unavailable. Please check your GPS.');
+        message.error('Location unavailable. Please check your device GPS.');
       } else if (error.code === 3) {
-        message.error('Location request timeout. Please try again.');
+        message.error('Location request timed out. Please try again.');
       } else {
         message.error(error.message || 'Failed to capture location');
       }

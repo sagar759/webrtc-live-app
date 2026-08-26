@@ -97,6 +97,18 @@ io.on('connection', (socket) => {
     io.to(to).emit('signal', { signal, from });
   });
 
+  // Relay location request to peer in room (e.g. doctor requesting patient location)
+  socket.on('request-patient-location', ({ roomId, claimId }) => {
+    console.log(`Location request sent to room ${roomId} for claim ${claimId}`);
+    socket.to(roomId).emit('request-patient-location', { claimId });
+  });
+
+  // Relay location updated notification
+  socket.on('patient-location-updated', ({ roomId, location }) => {
+    console.log(`Patient location updated in room ${roomId}:`, location);
+    socket.to(roomId).emit('patient-location-updated', { location });
+  });
+
   socket.on('disconnect', () => {
     // Find and remove user from all rooms
     rooms.forEach((users, roomId) => {

@@ -94,14 +94,35 @@ exports.getAllClaims = async (req, res) => {
   }
 };
 
+// Helper function to find claim by either MongoDB _id or custom claimId
+const findClaimByIdOrCustomId = async (id) => {
+  if (!id) return null;
+  let claim = null;
+  if (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/)) {
+    claim = await Claim.findById(id);
+  }
+  if (!claim) {
+    claim = await Claim.findOne({ claimId: id });
+  }
+  return claim;
+};
+
 // @desc    Get single claim
 // @route   GET /api/claims/:id
 // @access  Private (Doctor/Admin)
 exports.getClaimById = async (req, res) => {
   try {
-    const claim = await Claim.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('capturedImages.capturedBy', 'name email');
+    let claim = null;
+    if (req.params.id && req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      claim = await Claim.findById(req.params.id)
+        .populate('createdBy', 'name email')
+        .populate('capturedImages.capturedBy', 'name email');
+    }
+    if (!claim) {
+      claim = await Claim.findOne({ claimId: req.params.id })
+        .populate('createdBy', 'name email')
+        .populate('capturedImages.capturedBy', 'name email');
+    }
 
     if (!claim) {
       return res.status(404).json({ message: 'Claim not found' });
@@ -307,11 +328,47 @@ exports.uploadSignature = async (req, res) => {
   } catch (error) {
     console.error('Error uploading signature:', error);
     res.status(500).json({ 
-      success: false,
+      success: false, 
       message: 'Server error', 
       error: error.message 
     });
   }
+};
+
+// Helper function to reverse geocode coordinates to human-readable address
+const reverseGeocode = async (latitude, longitude) => {
+  const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyBjCExT250iDt5eihZ9k3S-MDY234jWeoI';
+  
+  // 1. Try Google Maps Geocoding API
+  try {
+    const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+    const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_MAPS_API_KEY}`;
+    const response = await fetch(googleUrl);
+    const data = await response.json();
+    
+    if (data.status === 'OK' && data.results && data.results.length > 0) {
+      return data.results[0].formatted_address;
+    }
+  } catch (err) {
+    console.warn('Google Maps reverse geocoding notice:', err.message);
+  }
+
+  // 2. Fallback to OpenStreetMap Nominatim
+  try {
+    const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+    const osmUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`;
+    const response = await fetch(osmUrl, {
+      headers: { 'User-Agent': 'WebRTC-Claims-Management/1.0' }
+    });
+    const data = await response.json();
+    if (data && data.display_name) {
+      return data.display_name;
+    }
+  } catch (err) {
+    console.warn('OSM reverse geocoding notice:', err.message);
+  }
+
+  return `Coordinates: ${latitude}, ${longitude}`;
 };
 
 // @desc    Save location to claim
@@ -319,11 +376,11 @@ exports.uploadSignature = async (req, res) => {
 // @access  Public (no auth required for patient location)
 exports.saveLocation = async (req, res) => {
   try {
-    const claimId = req.params.id;
-    const { locationType, userName, latitude, longitude, accuracy, address } = req.body;
+    const claimIdentifier = req.params.id;
+    let { locationType, userName, latitude, longitude, accuracy, address } = req.body;
 
     console.log(`\n=== Location Save Request ===`);
-    console.log(`Claim ID: ${claimId}`);
+    console.log(`Claim ID / MongoDB ID: ${claimIdentifier}`);
     console.log(`Location Type: ${locationType}`);
     console.log(`User Name: ${userName}`);
     console.log(`Latitude: ${latitude}`);
@@ -332,45 +389,67 @@ exports.saveLocation = async (req, res) => {
 
     if (!locationType || !['doctor', 'patient'].includes(locationType)) {
       return res.status(400).json({ 
-        success: false,
+        success: false, 
         message: 'Please provide valid location type (doctor or patient)' 
       });
     }
 
-    if (!latitude || !longitude) {
+    if (latitude === undefined || longitude === undefined || latitude === null || longitude === null) {
       return res.status(400).json({ 
-        success: false,
+        success: false, 
         message: 'Please provide latitude and longitude' 
       });
     }
 
-    if (!userName) {
-      return res.status(400).json({ 
+    const latNum = parseFloat(latitude);
+    const lngNum = parseFloat(longitude);
+
+    if (isNaN(latNum) || isNaN(lngNum)) {
+      return res.status(400).json({
         success: false,
-        message: 'Please provide user name' 
+        message: 'Invalid latitude or longitude values'
       });
     }
 
-    const claim = await Claim.findById(claimId);
+    // Try finding claim by either MongoDB _id or claimId string
+    let claim = null;
+    if (claimIdentifier.match(/^[0-9a-fA-F]{24}$/)) {
+      claim = await Claim.findById(claimIdentifier);
+    }
+    if (!claim) {
+      claim = await Claim.findOne({ claimId: claimIdentifier });
+    }
 
     if (!claim) {
       return res.status(404).json({ 
-        success: false,
-        message: `Claim not found with ID: ${claimId}` 
+        success: false, 
+        message: `Claim not found with ID: ${claimIdentifier}` 
       });
     }
 
     console.log(`Found Claim: ${claim.claimId}`);
     console.log(`Current locations count: ${claim.locations.length}`);
 
-    // Create location object
+    // If address is missing, reverse geocode coordinates
+    let formattedAddress = address;
+    if (!formattedAddress || formattedAddress.trim() === '' || formattedAddress === 'Not available') {
+      try {
+        formattedAddress = await reverseGeocode(latNum, lngNum);
+        console.log(`Reverse-geocoded address: ${formattedAddress}`);
+      } catch (geoErr) {
+        console.warn('Geocoding error:', geoErr);
+        formattedAddress = `Coordinates: ${latNum}, ${lngNum}`;
+      }
+    }
+
+    // Create location object with exact coordinates
     const location = {
       locationType: locationType,
-      userName: userName,
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
+      userName: userName || (locationType === 'doctor' ? claim.doctorName || 'Doctor' : claim.patientName || 'Patient'),
+      latitude: latNum,
+      longitude: lngNum,
       accuracy: accuracy ? parseFloat(accuracy) : null,
-      address: address || null,
+      address: formattedAddress,
       capturedAt: new Date(),
       capturedBy: req.user ? req.user._id : null,
     };
@@ -383,16 +462,24 @@ exports.saveLocation = async (req, res) => {
     if (existingLocationIndex !== -1) {
       // Update existing location
       claim.locations[existingLocationIndex] = location;
-      console.log(`Updated existing ${locationType} location`);
+      console.log(`Updated existing ${locationType} location with exact coords (${latNum}, ${lngNum})`);
     } else {
       // Add new location
       claim.locations.push(location);
-      console.log(`Added new ${locationType} location`);
+      console.log(`Added new ${locationType} location with exact coords (${latNum}, ${lngNum})`);
+    }
+
+    // If this is patient location, also update formData geo_location if formData exists
+    if (locationType === 'patient') {
+      if (!claim.formData) {
+        claim.formData = {};
+      }
+      claim.formData.geo_location = `${latNum}, ${lngNum}`;
     }
 
     await claim.save();
 
-    console.log(`Location saved successfully!`);
+    console.log(`Location saved successfully in MongoDB Atlas!`);
     console.log(`Total locations now: ${claim.locations.length}`);
     console.log(`===========================\n`);
 
@@ -402,14 +489,14 @@ exports.saveLocation = async (req, res) => {
       data: {
         claimId: claim.claimId,
         claimMongoId: claim._id,
-        location: claim.locations[claim.locations.length - 1],
+        location: location,
         totalLocations: claim.locations.length,
       },
     });
   } catch (error) {
     console.error('Error saving location:', error);
     res.status(500).json({ 
-      success: false,
+      success: false, 
       message: 'Server error', 
       error: error.message 
     });

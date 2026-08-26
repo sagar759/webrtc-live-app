@@ -10,18 +10,36 @@ const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || 'YOUR_GOOGLE_MAPS
  */
 const downloadMapImage = (latitude, longitude, tempPath) => {
   return new Promise((resolve, reject) => {
-    const mapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${latitude},${longitude}&zoom=15&size=400x300&markers=color:red%7C${latitude},${longitude}&key=${GOOGLE_MAPS_API_KEY}`;
+    const mapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${latitude},${longitude}&zoom=15&size=400x300&markers=color:red%7Clabel:L%7C${latitude},${longitude}&key=${GOOGLE_MAPS_API_KEY}`;
     
-    const file = fs.createWriteStream(tempPath);
-    https.get(mapUrl, (response) => {
+    const request = https.get(mapUrl, (response) => {
+      const contentType = response.headers['content-type'] || '';
+      if (response.statusCode !== 200 || !contentType.startsWith('image/')) {
+        response.resume(); // consume response data to free up memory
+        return reject(new Error(`Static map unavailable (HTTP ${response.statusCode}, type: ${contentType})`));
+      }
+
+      const file = fs.createWriteStream(tempPath);
       response.pipe(file);
       file.on('finish', () => {
         file.close();
         resolve(tempPath);
       });
-    }).on('error', (err) => {
-      fs.unlink(tempPath, () => {}); // Delete temp file on error
+      file.on('error', (err) => {
+        fs.unlink(tempPath, () => {});
+        reject(err);
+      });
+    });
+
+    request.on('error', (err) => {
+      fs.unlink(tempPath, () => {});
       reject(err);
+    });
+
+    request.setTimeout(4000, () => {
+      request.destroy();
+      fs.unlink(tempPath, () => {});
+      reject(new Error('Static map request timeout'));
     });
   });
 };
@@ -78,12 +96,17 @@ const generateClaimPDF = async (claim, outputPath) => {
       doc.fontSize(11)
          .font('Helvetica');
 
+      // Find doctor and patient location records
+      const doctorLocation = (claim.locations || []).find(loc => loc.locationType === 'doctor');
+      const patientLocation = (claim.locations || []).find(loc => loc.locationType === 'patient');
+
       const basicInfo = [
         ['Patient Name', claim.patientName],
         ['Patient Mobile', claim.patientMobile],
         ['Hospital City', claim.hospitalCity],
         ['Hospital State', claim.hospitalState],
         ['Patient Language', claim.patientLanguage],
+        ['Patient Address', (patientLocation && patientLocation.address) ? patientLocation.address : (claim.formData?.hospital_location || `${claim.hospitalCity}, ${claim.hospitalState}`)],
         ['Status', claim.status.toUpperCase()],
         ['Created At', new Date(claim.createdAt).toLocaleString('en-IN')],
       ];
@@ -95,6 +118,39 @@ const generateClaimPDF = async (claim, outputPath) => {
            .text(value || 'N/A');
         yPosition += 20;
       });
+
+      // Quick links for coordinates in Basic Info section if available
+      if (patientLocation || doctorLocation) {
+        yPosition += 5;
+        if (patientLocation) {
+          const patUrl = `https://www.google.com/maps?q=${patientLocation.latitude},${patientLocation.longitude}`;
+          doc.font('Helvetica-Bold')
+             .fillColor('#059669')
+             .text('Patient Coordinates: ', 50, yPosition, { continued: true })
+             .fillColor('#0066cc')
+             .font('Helvetica')
+             .text(`${patientLocation.latitude.toFixed(6)}, ${patientLocation.longitude.toFixed(6)} (Click to Open Map)`, {
+               link: patUrl,
+               underline: true
+             });
+          yPosition += 18;
+        }
+
+        if (doctorLocation) {
+          const docUrl = `https://www.google.com/maps?q=${doctorLocation.latitude},${doctorLocation.longitude}`;
+          doc.font('Helvetica-Bold')
+             .fillColor('#4338ca')
+             .text('Doctor Coordinates: ', 50, yPosition, { continued: true })
+             .fillColor('#0066cc')
+             .font('Helvetica')
+             .text(`${doctorLocation.latitude.toFixed(6)}, ${doctorLocation.longitude.toFixed(6)} (Click to Open Map)`, {
+               link: docUrl,
+               underline: true
+             });
+          yPosition += 18;
+        }
+        doc.fillColor('#000000');
+      }
 
       // Section: Form Data (Table Format)
       if (claim.formData && Object.keys(claim.formData).length > 0) {
@@ -433,9 +489,9 @@ const generateClaimPDF = async (claim, outputPath) => {
         });
       }
 
-      // Section: Locations (Table Format with Maps)
+      // Section: Locations (Table Format with Maps and Clickable Coordinates Links)
       if (claim.locations && claim.locations.length > 0) {
-        if (yPosition > 600) {
+        if (yPosition > 550) {
           doc.addPage();
           yPosition = 50;
         }
@@ -444,107 +500,159 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(16)
            .font('Helvetica-Bold')
            .fillColor('#667eea')
-           .text('📍 Location Data with Google Maps', 50, yPosition);
+           .text('📍 Geolocation & Maps Verification', 50, yPosition);
         
         yPosition += 25;
 
-        // Download and add maps for each location
-        for (let index = 0; index < claim.locations.length; index++) {
-          const location = claim.locations[index];
+        // Sort so patient or doctor come in consistent order
+        const sortedLocations = [...claim.locations].sort((a, b) => {
+          if (a.locationType === 'patient') return -1;
+          if (b.locationType === 'patient') return 1;
+          return 0;
+        });
+
+        // Render each location
+        for (let index = 0; index < sortedLocations.length; index++) {
+          const location = sortedLocations[index];
+          const isPatient = location.locationType === 'patient';
+          const isDoctor = location.locationType === 'doctor';
           
-          if (yPosition > 400) {
+          if (yPosition > 450) {
             doc.addPage();
             yPosition = 50;
           }
 
-          // Section header for each location
-          doc.fontSize(12)
+          // Section header for this location
+          const headerTitle = isPatient 
+            ? '🧑‍🦽 PATIENT LOCATION (Actual & Verified Coordinates)' 
+            : (isDoctor ? '👨‍⚕️ DOCTOR LOCATION (Actual & Verified Coordinates)' : `📍 ${location.locationType.toUpperCase()} LOCATION`);
+
+          const headerColor = isPatient ? '#059669' : '#4338ca';
+
+          doc.rect(50, yPosition, 510, 24)
+             .fill(headerColor);
+          doc.fillColor('#ffffff')
+             .fontSize(11)
              .font('Helvetica-Bold')
-             .fillColor('#764ba2')
-             .text(`Location ${index + 1}: ${location.locationType.toUpperCase()}`, 50, yPosition);
-          yPosition += 25;
+             .text(headerTitle, 60, yPosition + 6);
+          doc.fillColor('#000000');
+          yPosition += 30;
 
           // Helper function for location table rows
-          const drawLocationRow = (label, value) => {
+          const drawLocationRow = (label, value, isHighlight = false) => {
             if (yPosition > 720) {
               doc.addPage();
               yPosition = 50;
             }
 
-            const rowHeight = 20;
-            const col1X = 70;
-            const col2X = 250;
-            const col1Width = 180;
-            const col2Width = 310;
+            const rowHeight = 22;
+            const col1X = 50;
+            const col2X = 220;
+            const col1Width = 170;
+            const col2Width = 340;
 
             // Draw row
             doc.rect(col1X, yPosition, col1Width + col2Width, rowHeight)
-               .fillAndStroke('#f9fafb', '#dddddd');
+               .fillAndStroke(isHighlight ? '#ecfdf5' : '#f9fafb', '#dddddd');
 
             // Draw text
             doc.fillColor('#000000')
                .fontSize(9)
                .font('Helvetica-Bold')
-               .text(label, col1X + 8, yPosition + 5, { width: col1Width - 16 })
-               .font('Helvetica')
-               .text(value || 'N/A', col2X + 8, yPosition + 5, { width: col2Width - 16 });
+               .text(label, col1X + 8, yPosition + 6, { width: col1Width - 16 })
+               .font(isHighlight ? 'Helvetica-Bold' : 'Helvetica')
+               .fillColor(isHighlight ? '#047857' : '#000000')
+               .text(value || 'N/A', col2X + 8, yPosition + 6, { width: col2Width - 16 });
 
             yPosition += rowHeight;
           };
 
-          drawLocationRow('User Name', location.userName);
-          drawLocationRow('Latitude', location.latitude.toString());
-          drawLocationRow('Longitude', location.longitude.toString());
-          drawLocationRow('Accuracy', `${location.accuracy}m`);
-          drawLocationRow('Address', location.address || 'Not available');
+          drawLocationRow('User Name', location.userName || (isPatient ? claim.patientName : claim.doctorName));
+          drawLocationRow('Exact Latitude', `${location.latitude} (${location.latitude.toFixed(6)}°)`, true);
+          drawLocationRow('Exact Longitude', `${location.longitude} (${location.longitude.toFixed(6)}°)`, true);
+          drawLocationRow('GPS Accuracy', location.accuracy ? `±${location.accuracy} meters` : 'High Accuracy (GPS)');
           drawLocationRow('Captured At', new Date(location.capturedAt).toLocaleString('en-IN'));
 
-          yPosition += 10;
+          // Display full textual address in a dedicated box
+          yPosition += 8;
+          if (yPosition > 680) {
+            doc.addPage();
+            yPosition = 50;
+          }
+
+          const addressText = location.address || (isPatient ? `${claim.hospitalCity}, ${claim.hospitalState}` : 'Address not available');
+          const addressLines = Math.max(1, Math.ceil(addressText.length / 75));
+          const addressBoxHeight = Math.max(40, 20 + addressLines * 14);
+
+          doc.rect(50, yPosition, 510, addressBoxHeight)
+             .fillAndStroke(isPatient ? '#f0fdf4' : '#f5f3ff', isPatient ? '#10b981' : '#8b5cf6');
+
+          doc.fillColor(isPatient ? '#065f46' : '#5b21b6')
+             .fontSize(10)
+             .font('Helvetica-Bold')
+             .text(isPatient ? '🏠 Patient Physical Address (Text):' : '🏥 Doctor Location Address (Text):', 60, yPosition + 6);
+
+          doc.fillColor('#1f2937')
+             .fontSize(9)
+             .font('Helvetica')
+             .text(addressText, 60, yPosition + 22, { width: 490 });
+
+          yPosition += addressBoxHeight + 10;
 
           // Download and embed Google Maps image
           try {
+            if (yPosition > 450) {
+              doc.addPage();
+              yPosition = 50;
+            }
+
             const tempMapPath = path.join(__dirname, '..', 'pdfs', `temp-map-${index}-${Date.now()}.png`);
             await downloadMapImage(location.latitude, location.longitude, tempMapPath);
             
-            // Add map image to PDF
+            // Add map header
             doc.fontSize(10)
                .font('Helvetica-Bold')
-               .fillColor('#764ba2')
-               .text('📍 Map View:', 70, yPosition);
-            yPosition += 20;
+               .fillColor(headerColor)
+               .text(`🗺️ ${isPatient ? 'Patient' : 'Doctor'} Google Map View:`, 50, yPosition);
+            yPosition += 18;
 
-            doc.image(tempMapPath, 70, yPosition, { width: 400, height: 300 });
-            yPosition += 310;
-
-            // Add clickable Google Maps link below map
-            const mapsUrl = `https://maps.google.com/?q=${location.latitude},${location.longitude}`;
-            doc.fontSize(9)
-               .fillColor('#667eea')
-               .font('Helvetica-Bold')
-               .text('Open in Google Maps: ', 70, yPosition, { continued: true })
-               .fillColor('#0066cc')
-               .font('Helvetica')
-               .text(mapsUrl, { link: mapsUrl, underline: true });
+            doc.image(tempMapPath, 50, yPosition, { width: 420, height: 240 });
+            yPosition += 250;
 
             // Delete temp map file
             fs.unlink(tempMapPath, (err) => {
               if (err) console.error('Error deleting temp map:', err);
             });
-
-            yPosition += 25;
           } catch (mapError) {
-            console.error('Error adding map for location:', mapError);
-            // If map fails, just add the link
-            const mapsUrl = `https://maps.google.com/?q=${location.latitude},${location.longitude}`;
-            doc.fontSize(9)
-               .fillColor('#667eea')
-               .font('Helvetica-Bold')
-               .text('View on Google Maps: ', 70, yPosition, { continued: true })
-               .fillColor('#0066cc')
-               .font('Helvetica')
-               .text(mapsUrl, { link: mapsUrl, underline: true });
-            yPosition += 25;
+            console.error('Error adding static map for location:', mapError.message);
           }
+
+          // Add interactive Clickable Google Maps Redirect Link box
+          if (yPosition > 700) {
+            doc.addPage();
+            yPosition = 50;
+          }
+
+          const mapsUrl = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
+          
+          doc.rect(50, yPosition, 510, 36)
+             .fillAndStroke('#eff6ff', '#3b82f6');
+
+          doc.fontSize(9)
+             .font('Helvetica-Bold')
+             .fillColor('#1e40af')
+             .text(`📍 Click to Open ${isPatient ? 'Patient' : 'Doctor'} Coordinates in Google Maps:`, 60, yPosition + 6);
+
+          doc.fontSize(9)
+             .font('Helvetica')
+             .fillColor('#2563eb')
+             .text(mapsUrl, 60, yPosition + 20, {
+               link: mapsUrl,
+               underline: true,
+               width: 490
+             });
+
+          yPosition += 46;
         }
       }
 
