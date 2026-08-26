@@ -547,30 +547,93 @@ const VideoCall = () => {
       }
     });
 
-    // Remote request to capture patient location on patient's device
+    // Remote request to capture patient location on patient's device (Silent GPS lock from patient device)
     socket.on('request-patient-location', async ({ claimId: reqClaimId }) => {
       console.log('Received remote request to capture patient location');
       const targetClaimId = reqClaimId || claimId;
       if (role === 'patient') {
-        message.info({
-          content: '📍 Doctor requested location verification. Please confirm your exact location on the map.',
-          duration: 5
-        });
-        setLocationModalType('patient');
-        setLocationModalVisible(true);
+        if (!navigator.geolocation) {
+          console.warn('Geolocation not supported on patient device');
+          return;
+        }
+
+        try {
+          message.loading({ content: '📍 Verifying GPS location for Doctor...', key: 'patGps', duration: 2 });
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 12000,
+              maximumAge: 0
+            });
+          });
+
+          const { latitude, longitude, accuracy } = position.coords;
+          const locationUserName = userName || 'Patient';
+
+          // Save patient location directly from patient device to backend
+          const res = await saveLocation(
+            targetClaimId,
+            'patient',
+            locationUserName,
+            latitude,
+            longitude,
+            accuracy,
+            null,
+            null
+          );
+
+          message.success({
+            content: `✅ Location verified and shared with Doctor!`,
+            key: 'patGps',
+            duration: 3
+          });
+
+          // Send coordinates back to Doctor via socket
+          socket.emit('patient-location-updated', {
+            roomId,
+            location: {
+              locationType: 'patient',
+              userName: locationUserName,
+              latitude,
+              longitude,
+              accuracy: Math.round(accuracy),
+              address: res?.data?.location?.address || null
+            }
+          });
+        } catch (err) {
+          console.error('Patient GPS capture error:', err);
+          message.warning({
+            content: 'Could not access GPS. Please check location permissions on your browser.',
+            key: 'patGps',
+            duration: 4
+          });
+        }
       }
     });
 
     // Notification for doctor when patient location is updated
     socket.on('patient-location-updated', ({ location: patLoc }) => {
       console.log('Received patient-location-updated notification:', patLoc);
-      if (patLoc && patLoc.latitude && patLoc.longitude) {
+      if (role === 'doctor' && patLoc && patLoc.latitude && patLoc.longitude) {
+        const latNum = Number(patLoc.latitude);
+        const lngNum = Number(patLoc.longitude);
+        const accNum = patLoc.accuracy || 10;
+        const addr = patLoc.address || '';
+
         message.success({
-          content: `✅ Patient's exact GPS location verified & saved! (Lat: ${Number(patLoc.latitude).toFixed(6)}, Long: ${Number(patLoc.longitude).toFixed(6)})`,
+          content: `✅ Patient location verified! (Lat: ${latNum.toFixed(5)}, Long: ${lngNum.toFixed(5)})`,
           duration: 5,
         });
-      } else {
-        message.success('✅ Patient\'s location verified & saved to MongoDB Atlas!');
+
+        // Open inspection map for Doctor to see patient location
+        setLocationModalType('patient');
+        setLocationModalCoords({
+          latitude: latNum,
+          longitude: lngNum,
+          accuracy: accNum,
+          address: addr
+        });
+        setLocationModalVisible(true);
       }
     });
 
@@ -948,19 +1011,22 @@ const VideoCall = () => {
       return;
     }
 
-    // If Doctor is requesting Patient's location during an active call, request it from patient's device
-    if (locationType === 'patient' && role === 'doctor' && socket) {
-      socket.emit('request-patient-location', { roomId, claimId });
-      message.loading({
-        content: '📡 Requesting exact GPS location from Patient\'s device...',
-        key: 'patLocReq',
-        duration: 4
-      });
+    // Only Doctor has power to trigger/view locations
+    if (locationType === 'patient') {
+      if (socket) {
+        socket.emit('request-patient-location', { roomId, claimId });
+        message.loading({
+          content: '📡 Fetching live GPS coordinates from Patient\'s device...',
+          key: 'patLocReq',
+          duration: 3
+        });
+      }
       return;
     }
 
-    // Open high-standard location verification modal with map
-    setLocationModalType(locationType);
+    // Doctor location: open interactive picker for doctor
+    setLocationModalType('doctor');
+    setLocationModalCoords(null);
     setLocationModalVisible(true);
   };
 
@@ -1609,11 +1675,6 @@ const VideoCall = () => {
             >
               My Location
             </Button>
-          </>
-        )}
-
-        {remoteStream && (
-          <>
             <Button
               size="large"
               icon={<EnvironmentOutlined />}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Input, Button, Space, Typography, Tag, Spin, message } from 'antd';
-import { SearchOutlined, CompassOutlined, CheckCircleOutlined, EnvironmentOutlined } from '@ant-design/icons';
+import { SearchOutlined, CompassOutlined, CheckCircleOutlined, EnvironmentOutlined, EyeOutlined } from '@ant-design/icons';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -20,10 +20,14 @@ const LocationPickerModal = ({
   onConfirm,
   locationType = 'doctor',
   initialCoords = null,
-  userName = ''
+  userName = '',
+  readOnly = false
 }) => {
+  const isPatientView = locationType === 'patient';
+  const isDoctorMode = locationType === 'doctor';
+
   const [coords, setCoords] = useState(initialCoords || { latitude: 20.5937, longitude: 78.9629, accuracy: null });
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState(initialCoords?.address || '');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -35,23 +39,27 @@ const LocationPickerModal = ({
   const mapInstanceRef = useRef(null);
   const markerRef = useRef(null);
 
-  // Initialize or update coordinates when modal opens
+  // Initialize or update coordinates when modal opens or initialCoords change
   useEffect(() => {
     if (visible) {
       if (initialCoords && initialCoords.latitude && initialCoords.longitude) {
         setCoords(initialCoords);
-        fetchReverseGeocode(initialCoords.latitude, initialCoords.longitude);
-      } else {
+        if (initialCoords.address) {
+          setAddress(initialCoords.address);
+        } else {
+          fetchReverseGeocode(initialCoords.latitude, initialCoords.longitude);
+        }
+        updateMapPosition(initialCoords.latitude, initialCoords.longitude, 17);
+      } else if (isDoctorMode) {
         detectGpsLocation();
       }
     }
-  }, [visible]);
+  }, [visible, initialCoords]);
 
   // Setup Leaflet map instance
   useEffect(() => {
     if (!visible || !mapContainerRef.current) return;
 
-    // Destroy existing instance if any
     if (mapInstanceRef.current) {
       mapInstanceRef.current.remove();
       mapInstanceRef.current = null;
@@ -68,42 +76,65 @@ const LocationPickerModal = ({
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    const customIcon = L.icon({
-      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-      iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
-      popupAnchor: [1, -34],
-      shadowSize: [41, 41]
+    const markerColor = isDoctorMode ? '#10b981' : '#ec4899';
+    const markerHtml = `
+      <div style="
+        background: ${markerColor};
+        width: 32px;
+        height: 32px;
+        border-radius: 50% 50% 50% 0;
+        transform: rotate(-45deg);
+        border: 2px solid #ffffff;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">
+        <div style="
+          width: 12px;
+          height: 12px;
+          background: #ffffff;
+          border-radius: 50%;
+          transform: rotate(45deg);
+        "></div>
+      </div>
+    `;
+
+    const customDivIcon = L.divIcon({
+      html: markerHtml,
+      className: 'custom-leaflet-marker',
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+      popupAnchor: [0, -32]
     });
 
     const marker = L.marker([initialLat, initialLng], {
-      draggable: true,
-      icon: customIcon
+      draggable: isDoctorMode && !readOnly,
+      icon: customDivIcon
     }).addTo(map);
 
-    marker.bindPopup(`<b>${locationType.toUpperCase()} Location</b><br/>Drag to adjust pinpoint`).openPopup();
+    marker.bindPopup(`<b>${isDoctorMode ? 'Doctor Location' : "Patient's GPS Location"}</b><br/>${isDoctorMode ? 'Drag to adjust pinpoint' : 'Captured from patient device'}`).openPopup();
 
-    marker.on('dragend', () => {
-      const position = marker.getLatLng();
-      const newLat = position.lat;
-      const newLng = position.lng;
-      setCoords(prev => ({ ...prev, latitude: newLat, longitude: newLng, accuracy: 5 }));
-      fetchReverseGeocode(newLat, newLng);
-    });
+    if (isDoctorMode && !readOnly) {
+      marker.on('dragend', () => {
+        const position = marker.getLatLng();
+        const newLat = position.lat;
+        const newLng = position.lng;
+        setCoords(prev => ({ ...prev, latitude: newLat, longitude: newLng, accuracy: 5 }));
+        fetchReverseGeocode(newLat, newLng);
+      });
 
-    map.on('click', (e) => {
-      const { lat, lng } = e.latlng;
-      marker.setLatLng([lat, lng]);
-      setCoords(prev => ({ ...prev, latitude: lat, longitude: lng, accuracy: 5 }));
-      fetchReverseGeocode(lat, lng);
-    });
+      map.on('click', (e) => {
+        const { lat, lng } = e.latlng;
+        marker.setLatLng([lat, lng]);
+        setCoords(prev => ({ ...prev, latitude: lat, longitude: lng, accuracy: 5 }));
+        fetchReverseGeocode(lat, lng);
+      });
+    }
 
     mapInstanceRef.current = map;
     markerRef.current = marker;
 
-    // Invalidate size after modal renders to ensure full-width map
     setTimeout(() => {
       map.invalidateSize();
     }, 300);
@@ -114,9 +145,8 @@ const LocationPickerModal = ({
         mapInstanceRef.current = null;
       }
     };
-  }, [visible]);
+  }, [visible, isDoctorMode, readOnly]);
 
-  // Update map center and marker when coords change from search or GPS
   const updateMapPosition = (lat, lng, zoom = 16) => {
     if (mapInstanceRef.current && markerRef.current) {
       mapInstanceRef.current.setView([lat, lng], zoom);
@@ -124,7 +154,6 @@ const LocationPickerModal = ({
     }
   };
 
-  // Reverse Geocoding helper using Nominatim
   const fetchReverseGeocode = async (lat, lng) => {
     setGeocoding(true);
     try {
@@ -147,7 +176,6 @@ const LocationPickerModal = ({
     }
   };
 
-  // High Accuracy GPS auto-detection
   const detectGpsLocation = () => {
     if (!navigator.geolocation) {
       message.error('Geolocation is not supported by your browser');
@@ -188,7 +216,6 @@ const LocationPickerModal = ({
     );
   };
 
-  // Search address / landmark using OpenStreetMap Nominatim
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
@@ -229,13 +256,15 @@ const LocationPickerModal = ({
     }
     setSaving(true);
     try {
-      await onConfirm({
-        locationType,
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-        accuracy: coords.accuracy || 10,
-        address: address || `Coordinates: ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`
-      });
+      if (onConfirm) {
+        await onConfirm({
+          locationType,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy || 10,
+          address: address || `Coordinates: ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`
+        });
+      }
       onClose();
     } catch (err) {
       console.error('Failed to confirm location:', err);
@@ -248,11 +277,13 @@ const LocationPickerModal = ({
     <Modal
       title={
         <Space>
-          <EnvironmentOutlined style={{ color: locationType === 'doctor' ? '#10b981' : '#ec4899', fontSize: '20px' }} />
+          <EnvironmentOutlined style={{ color: isDoctorMode ? '#10b981' : '#ec4899', fontSize: '20px' }} />
           <span>
-            Verify & Confirm {locationType === 'doctor' ? 'Doctor' : 'Patient'} Exact Location
+            {isDoctorMode
+              ? 'Verify & Confirm Doctor Location'
+              : 'Patient Live GPS Location (Doctor View)'}
           </span>
-          <Tag color={locationType === 'doctor' ? 'green' : 'magenta'}>
+          <Tag color={isDoctorMode ? 'green' : 'magenta'}>
             {locationType.toUpperCase()}
           </Tag>
         </Space>
@@ -262,97 +293,115 @@ const LocationPickerModal = ({
       width={780}
       footer={[
         <Button key="cancel" onClick={onClose} disabled={saving}>
-          Cancel
+          {isPatientView ? 'Close' : 'Cancel'}
         </Button>,
-        <Button
-          key="gps"
-          icon={<CompassOutlined />}
-          onClick={detectGpsLocation}
-          loading={detectingGps}
-        >
-          Re-detect GPS
-        </Button>,
-        <Button
-          key="confirm"
-          type="primary"
-          icon={<CheckCircleOutlined />}
-          onClick={handleSave}
-          loading={saving}
-          style={{
-            background: locationType === 'doctor' ? '#10b981' : '#ec4899',
-            borderColor: locationType === 'doctor' ? '#10b981' : '#ec4899'
-          }}
-        >
-          Confirm & Save Exact Location
-        </Button>
+        ...(isDoctorMode
+          ? [
+              <Button
+                key="gps"
+                icon={<CompassOutlined />}
+                onClick={detectGpsLocation}
+                loading={detectingGps}
+              >
+                Re-detect GPS
+              </Button>,
+              <Button
+                key="confirm"
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                onClick={handleSave}
+                loading={saving}
+                style={{ background: '#10b981', borderColor: '#10b981' }}
+              >
+                Confirm & Save Doctor Location
+              </Button>
+            ]
+          : [
+              <Button
+                key="done"
+                type="primary"
+                icon={<EyeOutlined />}
+                onClick={onClose}
+                style={{ background: '#ec4899', borderColor: '#ec4899' }}
+              >
+                Verified & Done
+              </Button>
+            ])
       ]}
       styles={{
         body: { padding: '16px 24px' }
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <Text type="secondary" style={{ fontSize: '13px' }}>
-          💡 <b>Tip:</b> If on a laptop/Jio network without GPS, you can <b>search your clinic/hospital name</b> or <b>drag the red pin</b> directly to your exact spot on the map.
-        </Text>
+        {isDoctorMode ? (
+          <Text type="secondary" style={{ fontSize: '13px' }}>
+            💡 <b>Doctor Control:</b> If on a laptop/Jio network without GPS, you can <b>search your clinic/hospital name</b> or <b>drag the green pin</b> directly to your exact spot.
+          </Text>
+        ) : (
+          <Text type="secondary" style={{ fontSize: '13px' }}>
+            🔒 <b>Patient Verification:</b> This exact location was captured directly from the patient device's GPS satellites. The patient cannot alter this location.
+          </Text>
+        )}
 
-        {/* Address Search Bar */}
-        <div style={{ position: 'relative' }}>
-          <Space.Compact style={{ width: '100%' }}>
-            <Input
-              placeholder="Search clinic, hospital, building, street, or city (e.g. Apollo Hospital, Mumbai)..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onPressEnter={handleSearch}
-              allowClear
-              prefix={<SearchOutlined style={{ color: '#9ca3af' }} />}
-            />
-            <Button type="primary" onClick={handleSearch} loading={searching}>
-              Search
-            </Button>
-          </Space.Compact>
+        {/* Address Search Bar (Doctor mode only) */}
+        {isDoctorMode && (
+          <div style={{ position: 'relative' }}>
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                placeholder="Search clinic, hospital, building, street, or city..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onPressEnter={handleSearch}
+                allowClear
+                prefix={<SearchOutlined style={{ color: '#9ca3af' }} />}
+              />
+              <Button type="primary" onClick={handleSearch} loading={searching}>
+                Search
+              </Button>
+            </Space.Compact>
 
-          {/* Search Dropdown Results */}
-          {searchResults.length > 0 && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '42px',
-                left: 0,
-                right: 0,
-                background: '#ffffff',
-                border: '1px solid #d1d5db',
-                borderRadius: '8px',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
-                zIndex: 1000,
-                maxHeight: '220px',
-                overflowY: 'auto'
-              }}
-            >
-              {searchResults.map((item, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => handleSelectSearchResult(item)}
-                  style={{
-                    padding: '10px 14px',
-                    borderBottom: '1px solid #f3f4f6',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    lineHeight: '1.4',
-                    transition: 'background 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#f0fdf4')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '#ffffff')}
-                >
-                  <EnvironmentOutlined style={{ color: '#10b981', marginRight: '8px' }} />
-                  <b>{item.display_name.split(',')[0]}</b>
-                  <div style={{ color: '#6b7280', fontSize: '11px', marginTop: '2px' }}>
-                    {item.display_name}
+            {searchResults.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '42px',
+                  left: 0,
+                  right: 0,
+                  background: '#ffffff',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                  zIndex: 1000,
+                  maxHeight: '220px',
+                  overflowY: 'auto'
+                }}
+              >
+                {searchResults.map((item, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => handleSelectSearchResult(item)}
+                    style={{
+                      padding: '10px 14px',
+                      borderBottom: '1px solid #f3f4f6',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      lineHeight: '1.4',
+                      transition: 'background 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#f0fdf4')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '#ffffff')}
+                  >
+                    <EnvironmentOutlined style={{ color: '#10b981', marginRight: '8px' }} />
+                    <b>{item.display_name.split(',')[0]}</b>
+                    <div style={{ color: '#6b7280', fontSize: '11px', marginTop: '2px' }}>
+                      {item.display_name}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Interactive Leaflet Map Container */}
         <div
@@ -389,8 +438,8 @@ const LocationPickerModal = ({
           </div>
 
           <div style={{ fontSize: '13px', color: '#334155' }}>
-            <span style={{ fontWeight: 600, color: '#0f172a' }}>📍 Verified Address: </span>
-            <span>{address || 'Fetching address for pinpointed coordinates...'}</span>
+            <span style={{ fontWeight: 600, color: '#0f172a' }}>📍 {isPatientView ? "Patient's Address:" : 'Verified Address:'} </span>
+            <span>{address || (geocoding ? 'Resolving address...' : 'Address unavailable')}</span>
           </div>
         </div>
       </div>
