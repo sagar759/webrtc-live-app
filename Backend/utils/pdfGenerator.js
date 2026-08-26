@@ -90,15 +90,17 @@ const generateClaimPDF = async (claim, outputPath) => {
       doc.fillColor('#000000')
          .fontSize(16)
          .font('Helvetica-Bold')
-         .text('📋 Basic Information', 50, yPosition);
+         .text('Basic Information', 50, yPosition);
       
       yPosition += 25;
       doc.fontSize(11)
          .font('Helvetica');
 
-      // Find doctor and patient location records
-      const doctorLocation = (claim.locations || []).find(loc => loc.locationType === 'doctor');
-      const patientLocation = (claim.locations || []).find(loc => loc.locationType === 'patient');
+      // Get latest unique location for patient and doctor
+      const patientLocations = (claim.locations || []).filter(loc => loc.locationType === 'patient');
+      const doctorLocations = (claim.locations || []).filter(loc => loc.locationType === 'doctor');
+      const patientLocation = patientLocations.length > 0 ? patientLocations[patientLocations.length - 1] : null;
+      const doctorLocation = doctorLocations.length > 0 ? doctorLocations[doctorLocations.length - 1] : null;
 
       const basicInfo = [
         ['Patient Name', claim.patientName],
@@ -165,7 +167,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(16)
            .font('Helvetica-Bold')
            .fillColor('#667eea')
-           .text('📝 Detailed Form Information (Post-Meeting Data)', 50, yPosition);
+           .text('Detailed Form Information (Post-Meeting Data)', 50, yPosition);
         
         yPosition += 25;
 
@@ -220,7 +222,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(12)
            .font('Helvetica-Bold')
            .fillColor('#764ba2')
-           .text('👤 Patient & Policy Information', 50, yPosition + 10);
+           .text('Patient & Policy Information', 50, yPosition + 10);
         yPosition += 35;
 
         const patientInfo = [
@@ -246,7 +248,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(12)
            .font('Helvetica-Bold')
            .fillColor('#764ba2')
-           .text('🏥 Hospital Information', 50, yPosition + 10);
+           .text('Hospital Information', 50, yPosition + 10);
         yPosition += 35;
 
         const hospitalInfo = [
@@ -271,7 +273,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(12)
            .font('Helvetica-Bold')
            .fillColor('#764ba2')
-           .text('⚕️ Medical Information', 50, yPosition + 10);
+           .text('Medical Information', 50, yPosition + 10);
         yPosition += 35;
 
         const medicalInfo = [
@@ -297,7 +299,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(12)
            .font('Helvetica-Bold')
            .fillColor('#764ba2')
-           .text('📋 Additional Information', 50, yPosition + 10);
+           .text('Additional Information', 50, yPosition + 10);
         yPosition += 35;
 
         const additionalInfo = [
@@ -323,7 +325,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(12)
            .font('Helvetica-Bold')
            .fillColor('#764ba2')
-           .text('📹 Video Call Assessment', 50, yPosition + 10);
+           .text('Video Call Assessment', 50, yPosition + 10);
         yPosition += 35;
 
         const assessmentInfo = [
@@ -345,7 +347,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(12)
            .font('Helvetica-Bold')
            .fillColor('#764ba2')
-           .text('🔍 Investigation Details', 50, yPosition + 10);
+           .text('Investigation Details', 50, yPosition + 10);
         yPosition += 35;
 
         const investigationInfo = [
@@ -374,7 +376,7 @@ const generateClaimPDF = async (claim, outputPath) => {
           doc.fontSize(12)
              .font('Helvetica-Bold')
              .fillColor('#764ba2')
-             .text('💬 Patient Statement', 50, yPosition);
+             .text('Patient Statement', 50, yPosition);
           
           yPosition += 25;
           
@@ -406,7 +408,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(16)
            .font('Helvetica-Bold')
            .fillColor('#667eea')
-           .text('📎 Uploaded Documents with Download Links', 50, yPosition);
+           .text('Uploaded Documents with Download Links', 50, yPosition);
         
         yPosition += 25;
 
@@ -451,7 +453,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(16)
            .font('Helvetica-Bold')
            .fillColor('#667eea')
-           .text('📄 Form Documents with Download Links', 50, yPosition);
+           .text('Form Documents with Download Links', 50, yPosition);
         
         yPosition += 25;
 
@@ -490,7 +492,12 @@ const generateClaimPDF = async (claim, outputPath) => {
       }
 
       // Section: Locations (Table Format with Maps and Clickable Coordinates Links)
-      if (claim.locations && claim.locations.length > 0) {
+      // Deduplicate locations: Show Patient Location EXACTLY ONCE and Doctor Location EXACTLY ONCE
+      const uniqueLocations = [];
+      if (patientLocation) uniqueLocations.push(patientLocation);
+      if (doctorLocation) uniqueLocations.push(doctorLocation);
+
+      if (uniqueLocations.length > 0) {
         if (yPosition > 550) {
           doc.addPage();
           yPosition = 50;
@@ -500,20 +507,13 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(16)
            .font('Helvetica-Bold')
            .fillColor('#667eea')
-           .text('📍 Geolocation & Maps Verification', 50, yPosition);
+           .text('Geolocation & Maps Verification', 50, yPosition);
         
         yPosition += 25;
 
-        // Sort so patient or doctor come in consistent order
-        const sortedLocations = [...claim.locations].sort((a, b) => {
-          if (a.locationType === 'patient') return -1;
-          if (b.locationType === 'patient') return 1;
-          return 0;
-        });
-
-        // Render each location
-        for (let index = 0; index < sortedLocations.length; index++) {
-          const location = sortedLocations[index];
+        // Render each unique location once
+        for (let index = 0; index < uniqueLocations.length; index++) {
+          const location = uniqueLocations[index];
           const isPatient = location.locationType === 'patient';
           const isDoctor = location.locationType === 'doctor';
           
@@ -524,8 +524,8 @@ const generateClaimPDF = async (claim, outputPath) => {
 
           // Section header for this location
           const headerTitle = isPatient 
-            ? '🧑‍🦽 PATIENT LOCATION (Actual & Verified Coordinates)' 
-            : (isDoctor ? '👨‍⚕️ DOCTOR LOCATION (Actual & Verified Coordinates)' : `📍 ${location.locationType.toUpperCase()} LOCATION`);
+            ? 'PATIENT LOCATION (Actual & Verified Coordinates)' 
+            : (isDoctor ? 'DOCTOR LOCATION (Actual & Verified Coordinates)' : `${location.locationType.toUpperCase()} LOCATION`);
 
           const headerColor = isPatient ? '#059669' : '#4338ca';
 
@@ -590,7 +590,7 @@ const generateClaimPDF = async (claim, outputPath) => {
           doc.fillColor(isPatient ? '#065f46' : '#5b21b6')
              .fontSize(10)
              .font('Helvetica-Bold')
-             .text(isPatient ? '🏠 Patient Physical Address (Text):' : '🏥 Doctor Location Address (Text):', 60, yPosition + 6);
+             .text(isPatient ? 'Patient Physical Address (Text):' : 'Doctor Location Address (Text):', 60, yPosition + 6);
 
           doc.fillColor('#1f2937')
              .fontSize(9)
@@ -599,21 +599,21 @@ const generateClaimPDF = async (claim, outputPath) => {
 
           yPosition += addressBoxHeight + 10;
 
-          // Download and embed Google Maps image
+          // Download and embed Google Maps image (only once per unique location)
           try {
             if (yPosition > 450) {
               doc.addPage();
               yPosition = 50;
             }
 
-            const tempMapPath = path.join(__dirname, '..', 'pdfs', `temp-map-${index}-${Date.now()}.png`);
+            const tempMapPath = path.join(__dirname, '..', 'pdfs', `temp-map-${location.locationType}-${Date.now()}.png`);
             await downloadMapImage(location.latitude, location.longitude, tempMapPath);
             
             // Add map header
             doc.fontSize(10)
                .font('Helvetica-Bold')
                .fillColor(headerColor)
-               .text(`🗺️ ${isPatient ? 'Patient' : 'Doctor'} Google Map View:`, 50, yPosition);
+               .text(`${isPatient ? 'Patient' : 'Doctor'} Google Map View:`, 50, yPosition);
             yPosition += 18;
 
             doc.image(tempMapPath, 50, yPosition, { width: 420, height: 240 });
@@ -641,7 +641,7 @@ const generateClaimPDF = async (claim, outputPath) => {
           doc.fontSize(9)
              .font('Helvetica-Bold')
              .fillColor('#1e40af')
-             .text(`📍 Click to Open ${isPatient ? 'Patient' : 'Doctor'} Coordinates in Google Maps:`, 60, yPosition + 6);
+             .text(`Click to Open ${isPatient ? 'Patient' : 'Doctor'} Coordinates in Google Maps:`, 60, yPosition + 6);
 
           doc.fontSize(9)
              .font('Helvetica')
@@ -667,7 +667,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(16)
            .font('Helvetica-Bold')
            .fillColor('#667eea')
-           .text('📷 Captured Images with Download Links', 50, yPosition);
+           .text('Captured Images with Download Links', 50, yPosition);
         
         yPosition += 25;
 
@@ -718,7 +718,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(16)
            .font('Helvetica-Bold')
            .fillColor('#667eea')
-           .text('✍️ Signatures with Download Links', 50, yPosition);
+           .text('Signatures with Download Links', 50, yPosition);
         
         yPosition += 25;
 
@@ -769,7 +769,7 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(16)
            .font('Helvetica-Bold')
            .fillColor('#667eea')
-           .text('🎥 Video Recordings with Download Links', 50, yPosition);
+           .text('Video Recordings with Download Links', 50, yPosition);
         
         yPosition += 25;
 

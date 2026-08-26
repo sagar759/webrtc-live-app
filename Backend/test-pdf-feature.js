@@ -27,7 +27,34 @@ async function runTest() {
         longitude: 77.594562,
         accuracy: 8,
         address: 'MG Road, Indiranagar, Bengaluru, Karnataka 560038, India',
+        capturedAt: new Date(Date.now() - 30000)
+      },
+      {
+        locationType: 'patient',
+        userName: 'Rahul Sharma (Patient)',
+        latitude: 12.971598,
+        longitude: 77.594562,
+        accuracy: 8,
+        address: 'MG Road, Indiranagar, Bengaluru, Karnataka 560038, India',
+        capturedAt: new Date(Date.now() - 20000)
+      },
+      {
+        locationType: 'patient',
+        userName: 'Rahul Sharma (Patient)',
+        latitude: 12.971598,
+        longitude: 77.594562,
+        accuracy: 8,
+        address: 'MG Road, Indiranagar, Bengaluru, Karnataka 560038, India',
         capturedAt: new Date()
+      },
+      {
+        locationType: 'doctor',
+        userName: 'Dr. Santosh Kumar (Doctor)',
+        latitude: 28.613939,
+        longitude: 77.209021,
+        accuracy: 12,
+        address: 'Connaught Place, New Delhi, Delhi 110001, India',
+        capturedAt: new Date(Date.now() - 10000)
       },
       {
         locationType: 'doctor',
