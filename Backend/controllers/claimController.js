@@ -1,5 +1,6 @@
 const Claim = require('../models/Claim');
 const { generateClaimPDF } = require('../utils/pdfGenerator');
+const { uploadFileToAzure } = require('../utils/azureBlob');
 const path = require('path');
 const fs = require('fs');
 
@@ -35,18 +36,19 @@ exports.createClaim = async (req, res) => {
       return res.status(400).json({ message: 'Claim ID already exists' });
     }
 
-    // Process uploaded files
+    // Process uploaded files and upload to Azure Blob Storage
     const documents = [];
     if (req.files && req.files.length > 0) {
-      req.files.forEach(file => {
+      for (const file of req.files) {
+        const azureUrl = await uploadFileToAzure(file.path, file.filename, file.mimetype);
         documents.push({
           filename: file.filename,
           originalName: file.originalname,
-          path: file.path,
+          path: azureUrl || file.path,
           mimetype: file.mimetype,
           size: file.size,
         });
-      });
+      }
     }
 
     // Create claim
@@ -215,10 +217,13 @@ exports.uploadCapturedImage = async (req, res) => {
     console.log(`Found Claim: ${claim.claimId}`);
     console.log(`Current captured images count: ${claim.capturedImages.length}`);
 
+    // Upload captured image to Azure Blob Storage
+    const azureUrl = await uploadFileToAzure(req.file.path, req.file.filename, req.file.mimetype || 'image/png');
+
     // Add captured image to claim
     const capturedImage = {
       filename: req.file.filename,
-      path: req.file.path,
+      path: azureUrl || req.file.path,
       type: imageType,
       capturedBy: req.user._id,
       capturedAt: new Date(),
@@ -536,10 +541,13 @@ exports.uploadRecording = async (req, res) => {
     console.log(`Found Claim: ${claim.claimId}`);
     console.log(`Current recordings count: ${claim.recordings.length}`);
 
+    // Upload recording to Azure Blob Storage
+    const azureUrl = await uploadFileToAzure(req.file.path, req.file.filename, req.file.mimetype || 'video/webm');
+
     // Add recording to claim
     const recording = {
       filename: req.file.filename,
-      path: req.file.path,
+      path: azureUrl || req.file.path,
       duration: duration ? parseFloat(duration) : null,
       fileSize: req.file.size,
       recordedBy: req.user._id,
@@ -599,16 +607,17 @@ exports.submitClaimForm = async (req, res) => {
 
     console.log(`Found Claim: ${claim.claimId}`);
 
-    // Prepare form documents
+    // Prepare form documents and upload to Azure Blob Storage
     const formDocuments = [];
     if (req.files && req.files.length > 0) {
-      req.files.forEach(file => {
+      for (const file of req.files) {
+        const azureUrl = await uploadFileToAzure(file.path, file.filename, file.mimetype);
         formDocuments.push({
           filename: file.filename,
-          path: file.path,
+          path: azureUrl || file.path,
           uploadedAt: new Date(),
         });
-      });
+      }
     }
 
     // Update claim with form data
