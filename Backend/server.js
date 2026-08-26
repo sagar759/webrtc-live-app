@@ -5,6 +5,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const connectDB = require('./config/db');
 const path = require('path');
+const startKeepAlive = require('./utils/keepAlive');
 
 // Load env vars
 dotenv.config();
@@ -60,8 +61,8 @@ app.use('/signatures', express.static(path.join(__dirname, 'signatures')));
 app.use('/', express.static('uploads'));
 
 // Health check route
-app.get('/', (req, res) => {
-  res.json({ message: 'WebRTC Claims Management API is running' });
+app.get(['/', '/health'], (req, res) => {
+  res.json({ status: 'ok', message: 'WebRTC Claims Management API is running', timestamp: new Date().toISOString() });
 });
 
 // Socket.IO for WebRTC signaling
@@ -132,4 +133,5 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  startKeepAlive();
 });
