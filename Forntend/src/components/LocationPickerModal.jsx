@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Modal, Input, Button, Space, Typography, Tag, Spin, message } from 'antd';
-import { SearchOutlined, CompassOutlined, CheckCircleOutlined, EnvironmentOutlined, EyeOutlined } from '@ant-design/icons';
+import { Modal, Input, Button, Space, Typography, Tag, Spin, Alert, message } from 'antd';
+import { SearchOutlined, CompassOutlined, CheckCircleOutlined, EnvironmentOutlined, EyeOutlined, WarningOutlined } from '@ant-design/icons';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { getPinpointLocation, isMobileDevice } from '../utils/geolocation';
 
 const { Text } = Typography;
 
@@ -32,6 +33,7 @@ const LocationPickerModal = ({
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [detectingGps, setDetectingGps] = useState(false);
+  const [gpsStatusText, setGpsStatusText] = useState('');
   const [geocoding, setGeocoding] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -176,44 +178,71 @@ const LocationPickerModal = ({
     }
   };
 
-  const detectGpsLocation = () => {
+  const detectGpsLocation = async () => {
     if (!navigator.geolocation) {
       message.error('Geolocation is not supported by your browser');
       return;
     }
 
     setDetectingGps(true);
-    message.loading({ content: '📡 Acquiring high-precision GPS lock...', key: 'gpsLock', duration: 2 });
+    setGpsStatusText('Acquiring satellite lock...');
+    const hideLoading = message.loading({ content: '📡 Locking onto GPS satellites for pinpoint accuracy...', key: 'gpsLock', duration: 0 });
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setDetectingGps(false);
-        const { latitude, longitude, accuracy } = position.coords;
-        const newCoords = { latitude, longitude, accuracy: Math.round(accuracy) };
-        setCoords(newCoords);
-        updateMapPosition(latitude, longitude, 17);
-        fetchReverseGeocode(latitude, longitude);
+    try {
+      const pinpoint = await getPinpointLocation({
+        targetAccuracy: 25,
+        maxWaitTimeMs: 15000,
+        coarseThreshold: 100,
+        onProgress: ({ currentAccuracy, secondsLeft }) => {
+          if (currentAccuracy) {
+            setGpsStatusText(`Refining accuracy: ±${currentAccuracy}m (${secondsLeft}s)...`);
+          }
+        }
+      });
+
+      setDetectingGps(false);
+      setGpsStatusText('');
+      hideLoading();
+
+      const newCoords = {
+        latitude: pinpoint.latitude,
+        longitude: pinpoint.longitude,
+        accuracy: pinpoint.accuracy
+      };
+      setCoords(newCoords);
+      updateMapPosition(pinpoint.latitude, pinpoint.longitude, 17);
+      fetchReverseGeocode(pinpoint.latitude, pinpoint.longitude);
+
+      if (pinpoint.isHighAccuracy) {
         message.success({
-          content: `🎯 GPS Locked! Accuracy: within ±${Math.round(accuracy)}m`,
+          content: `🎯 Pinpoint GPS Locked! Accuracy: ±${pinpoint.accuracy}m`,
+          key: 'gpsLock',
+          duration: 4
+        });
+      } else if (pinpoint.isCoarse) {
+        message.warning({
+          content: `⚠️ Coarse location (±${pinpoint.accuracy >= 1000 ? Math.round(pinpoint.accuracy / 1000) + 'km' : pinpoint.accuracy + 'm'}). If on laptop/PC, please search your clinic or drag the pin.`,
+          key: 'gpsLock',
+          duration: 6
+        });
+      } else {
+        message.info({
+          content: `📍 Location acquired: ±${pinpoint.accuracy}m`,
           key: 'gpsLock',
           duration: 3
         });
-      },
-      (error) => {
-        setDetectingGps(false);
-        console.warn('GPS detection warning:', error);
-        let errorMsg = 'Could not acquire precise GPS signal.';
-        if (error.code === 1) errorMsg = 'Location permission denied. Please allow location access in your browser.';
-        else if (error.code === 2) errorMsg = 'GPS unavailable. You can search your clinic/address or drag the map pin.';
-        else if (error.code === 3) errorMsg = 'GPS timeout. You can search your address or drag the pin.';
-        message.info({ content: errorMsg, key: 'gpsLock', duration: 4 });
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0
       }
-    );
+    } catch (error) {
+      setDetectingGps(false);
+      setGpsStatusText('');
+      hideLoading();
+      console.warn('GPS detection warning:', error);
+      let errorMsg = 'Could not acquire precise GPS signal.';
+      if (error.code === 1) errorMsg = 'Location permission denied. Please allow location access in your browser.';
+      else if (error.code === 2) errorMsg = 'GPS unavailable. Please search your clinic/address or drag the map pin.';
+      else if (error.code === 3) errorMsg = 'GPS timeout. You can search your address or drag the pin.';
+      message.info({ content: errorMsg, key: 'gpsLock', duration: 4 });
+    }
   };
 
   const handleSearch = async () => {
@@ -343,6 +372,26 @@ const LocationPickerModal = ({
           </Text>
         )}
 
+        {detectingGps && (
+          <Alert
+            message="📡 Triangulating GPS Satellites..."
+            description={gpsStatusText || "Acquiring high-precision satellite lock. Please wait..."}
+            type="info"
+            showIcon
+            style={{ borderRadius: '8px' }}
+          />
+        )}
+
+        {!detectingGps && coords.accuracy && coords.accuracy > 100 && isDoctorMode && (
+          <Alert
+            message="⚠️ Coarse Network IP Location Detected"
+            description={`Current signal accuracy is ±${coords.accuracy >= 1000 ? Math.round(coords.accuracy / 1000) + ' km' : coords.accuracy + ' m'}. Laptops and PC browsers without hardware GPS route through ISP gateways (~50 km off). Please search your clinic name above or drag the green pin on the map directly to your exact building.`}
+            type="warning"
+            showIcon
+            style={{ borderRadius: '8px' }}
+          />
+        )}
+
         {/* Address Search Bar (Doctor mode only) */}
         {isDoctorMode && (
           <div style={{ position: 'relative' }}>
@@ -429,10 +478,16 @@ const LocationPickerModal = ({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <Space>
+            <Space wrap>
               <Tag color="blue">Lat: {coords.latitude ? Number(coords.latitude).toFixed(6) : 'N/A'}</Tag>
               <Tag color="cyan">Long: {coords.longitude ? Number(coords.longitude).toFixed(6) : 'N/A'}</Tag>
-              {coords.accuracy && <Tag color="green">Accuracy: ±{coords.accuracy}m</Tag>}
+              {coords.accuracy !== null && coords.accuracy !== undefined && (
+                <Tag color={coords.accuracy <= 25 ? 'green' : (coords.accuracy <= 100 ? 'blue' : 'orange')}>
+                  {coords.accuracy <= 25 ? `🎯 High Precision GPS (±${coords.accuracy}m)` :
+                   coords.accuracy <= 100 ? `📍 Accuracy: ±${coords.accuracy}m` :
+                   `⚠️ Coarse IP (±${coords.accuracy >= 1000 ? Math.round(coords.accuracy / 1000) + 'km' : coords.accuracy + 'm'})`}
+                </Tag>
+              )}
             </Space>
             {geocoding && <Spin size="small" />}
           </div>

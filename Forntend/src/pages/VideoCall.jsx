@@ -20,6 +20,7 @@ import io from 'socket.io-client';
 import { getMeetingByRoomId, uploadCapturedImage, saveLocation, uploadRecording, completeMeetingByRoomId, startMeetingByRoomId } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
 import LocationPickerModal from '../components/LocationPickerModal';
+import { getPinpointLocation } from '../utils/geolocation';
 
 // Add global styles for animations and responsive design
 const globalStyles = `
@@ -728,7 +729,7 @@ const VideoCall = () => {
       }
     });
 
-    // Remote request to capture patient location on patient's device (Silent GPS lock from patient device)
+    // Remote request to capture patient location on patient's device (High-precision GPS lock)
     socket.on('request-patient-location', async ({ claimId: reqClaimId }) => {
       console.log('Received remote request to capture patient location');
       const targetClaimId = reqClaimId || claimId;
@@ -739,16 +740,28 @@ const VideoCall = () => {
         }
 
         try {
-          message.loading({ content: '📍 Verifying GPS location for Doctor...', key: 'patGps', duration: 2 });
-          const position = await new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 12000,
-              maximumAge: 0
-            });
+          message.loading({
+            content: '📡 Locking onto GPS satellites for Doctor verification...',
+            key: 'patGps',
+            duration: 0
           });
 
-          const { latitude, longitude, accuracy } = position.coords;
+          const pinpoint = await getPinpointLocation({
+            targetAccuracy: 25,
+            maxWaitTimeMs: 15000,
+            coarseThreshold: 100,
+            onProgress: ({ currentAccuracy, secondsLeft }) => {
+              if (currentAccuracy) {
+                message.loading({
+                  content: `📡 Refining GPS satellite signal: ±${currentAccuracy}m (${secondsLeft}s left)...`,
+                  key: 'patGps',
+                  duration: 0
+                });
+              }
+            }
+          });
+
+          const { latitude, longitude, accuracy, isHighAccuracy, isCoarse } = pinpoint;
           const locationUserName = userName || 'Patient';
 
           // Save patient location directly from patient device to backend
@@ -763,11 +776,25 @@ const VideoCall = () => {
             null
           );
 
-          message.success({
-            content: `✅ Location verified and shared with Doctor!`,
-            key: 'patGps',
-            duration: 3
-          });
+          if (isHighAccuracy) {
+            message.success({
+              content: `🎯 Pinpoint GPS verified (±${accuracy}m) & shared with Doctor!`,
+              key: 'patGps',
+              duration: 4
+            });
+          } else if (isCoarse) {
+            message.warning({
+              content: `⚠️ Shared approximate location (±${accuracy >= 1000 ? Math.round(accuracy / 1000) + 'km' : accuracy + 'm'}). Please enable 'Precise Location' on your phone.`,
+              key: 'patGps',
+              duration: 5
+            });
+          } else {
+            message.success({
+              content: `✅ Location verified (±${accuracy}m) and shared with Doctor!`,
+              key: 'patGps',
+              duration: 3
+            });
+          }
 
           // Send coordinates back to Doctor via socket
           socket.emit('patient-location-updated', {
@@ -784,9 +811,9 @@ const VideoCall = () => {
         } catch (err) {
           console.error('Patient GPS capture error:', err);
           message.warning({
-            content: 'Could not access GPS. Please check location permissions on your browser.',
+            content: 'Could not acquire GPS satellite lock. Please check location permissions on your browser and enable GPS.',
             key: 'patGps',
-            duration: 4
+            duration: 5
           });
         }
       }
@@ -801,8 +828,9 @@ const VideoCall = () => {
         const accNum = patLoc.accuracy || 10;
         const addr = patLoc.address || '';
 
+        const accBadge = accNum <= 25 ? `🎯 High Precision (±${accNum}m)` : `±${accNum}m`;
         message.success({
-          content: `✅ Patient location verified! (Lat: ${latNum.toFixed(5)}, Long: ${lngNum.toFixed(5)})`,
+          content: `✅ Patient location verified! (Lat: ${latNum.toFixed(5)}, Long: ${lngNum.toFixed(5)} - ${accBadge})`,
           duration: 5,
         });
 
@@ -1064,25 +1092,28 @@ const VideoCall = () => {
     }
   };
 
-  // Silent location capture (no loading messages, runs in background)
+  // Silent location capture (only auto-saves if high-precision GPS is detected, never coarse IP)
   const captureLocationSilently = async (locationType) => {
     if (!claimId || !navigator.geolocation) {
       return;
     }
 
     try {
-      // Get current position
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
-        });
+      const pinpoint = await getPinpointLocation({
+        targetAccuracy: 30,
+        maxWaitTimeMs: 8000,
+        coarseThreshold: 100
       });
 
-      const { latitude, longitude, accuracy } = position.coords;
+      const { latitude, longitude, accuracy, isHighAccuracy } = pinpoint;
 
-      console.log('Auto-captured location on join:', {
+      // STRICT CHECK: Never silently save coarse IP / cell coordinates (accuracy > 50m)
+      if (accuracy > 50) {
+        console.log(`ℹ️ [Auto-Location] Skipping silent save for ${locationType}: Accuracy is ±${accuracy}m (coarse/network IP). Waiting for precise GPS or manual confirmation.`);
+        return;
+      }
+
+      console.log('Auto-captured high-precision location on join:', {
         locationType,
         latitude,
         longitude,
@@ -1094,7 +1125,7 @@ const VideoCall = () => {
       const locationUserName = locationType === 'doctor' ? user.name : userName;
       const token = locationType === 'doctor' ? user.token : null;
 
-      // Save location to backend silently
+      // Save high-precision location to backend silently
       const response = await saveLocation(
         claimId,
         locationType,
@@ -1106,12 +1137,11 @@ const VideoCall = () => {
         token
       );
 
-      if (response.success) {
-        console.log(`✅ ${locationType} location auto-saved:`, response.data);
+      if (response && response.success) {
+        console.log(`✅ ${locationType} high-precision location auto-saved:`, response.data);
       }
     } catch (error) {
-      console.error('Silent location capture failed:', error);
-      // Don't show error to user, just log it
+      console.log('Silent location auto-capture skipped or unavailable:', error.message);
     }
   };
 
