@@ -2,6 +2,23 @@ const Meeting = require('../models/Meeting');
 const Claim = require('../models/Claim');
 const { v4: uuidv4 } = require('uuid');
 
+// Helper to get frontend origin dynamically from request headers or environment
+const getFrontendOrigin = (req) => {
+  let frontendOrigin = (process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+  if (!frontendOrigin) {
+    const originHeader = req.headers.origin;
+    const refererHeader = req.headers.referer;
+    if (originHeader) {
+      frontendOrigin = originHeader.replace(/\/+$/, '');
+    } else if (refererHeader) {
+      try {
+        frontendOrigin = new URL(refererHeader).origin;
+      } catch (e) {}
+    }
+  }
+  return frontendOrigin || 'http://localhost:5173';
+};
+
 // @desc    Create meeting for claim
 // @route   POST /api/meetings/create/:claimId
 // @access  Private (Doctor)
@@ -15,10 +32,19 @@ exports.createMeeting = async (req, res) => {
       return res.status(404).json({ message: 'Claim not found' });
     }
 
+    const frontendOrigin = getFrontendOrigin(req);
+
     // Check if meeting already exists for this claim
     let meeting = await Meeting.findOne({ claimId });
     
     if (meeting) {
+      // If patient link contains localhost or is outdated, update dynamically with active origin
+      const activePatientLink = `${frontendOrigin}/meeting/${meeting.roomId}?role=patient`;
+      if (!meeting.patientLink || meeting.patientLink.includes('localhost')) {
+        meeting.patientLink = activePatientLink;
+        await meeting.save();
+      }
+
       // Return existing meeting
       return res.status(200).json({
         success: true,
@@ -31,7 +57,7 @@ exports.createMeeting = async (req, res) => {
     const roomId = uuidv4();
     
     // Generate patient link
-    const patientLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/meeting/${roomId}?role=patient`;
+    const patientLink = `${frontendOrigin}/meeting/${roomId}?role=patient`;
 
     // Create new meeting
     meeting = await Meeting.create({
@@ -65,6 +91,12 @@ exports.getMeetingByRoomId = async (req, res) => {
 
     if (!meeting) {
       return res.status(404).json({ message: 'Meeting not found' });
+    }
+
+    const frontendOrigin = getFrontendOrigin(req);
+    if (frontendOrigin && (!meeting.patientLink || meeting.patientLink.includes('localhost'))) {
+      meeting.patientLink = `${frontendOrigin}/meeting/${meeting.roomId}?role=patient`;
+      await meeting.save();
     }
 
     res.status(200).json({
@@ -218,6 +250,12 @@ exports.getMeetingByClaimId = async (req, res) => {
         success: false,
         message: 'Meeting not found' 
       });
+    }
+
+    const frontendOrigin = getFrontendOrigin(req);
+    if (frontendOrigin && (!meeting.patientLink || meeting.patientLink.includes('localhost'))) {
+      meeting.patientLink = `${frontendOrigin}/meeting/${meeting.roomId}?role=patient`;
+      await meeting.save();
     }
 
     console.log(`Found Meeting - Status: ${meeting.status}, Room ID: ${meeting.roomId}`);

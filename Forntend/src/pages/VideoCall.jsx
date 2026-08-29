@@ -2,7 +2,20 @@ import { useState, useEffect, useRef } from 'react';
 import { SOCKET_URL } from '../services/api';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { Button, Card, Typography, Space, Input, message, Spin, Select, Modal } from 'antd';
-import { VideoCameraOutlined, AudioOutlined, AudioMutedOutlined, PhoneOutlined, CopyOutlined, ShareAltOutlined, CameraOutlined, EnvironmentOutlined, PlayCircleOutlined, StopOutlined, SettingOutlined } from '@ant-design/icons';
+import { 
+  VideoCameraOutlined, 
+  AudioOutlined, 
+  AudioMutedOutlined, 
+  PhoneOutlined, 
+  CopyOutlined, 
+  ShareAltOutlined, 
+  CameraOutlined, 
+  EnvironmentOutlined, 
+  PlayCircleOutlined, 
+  StopOutlined, 
+  SettingOutlined,
+  SyncOutlined 
+} from '@ant-design/icons';
 import io from 'socket.io-client';
 import { getMeetingByRoomId, uploadCapturedImage, saveLocation, uploadRecording, completeMeetingByRoomId, startMeetingByRoomId } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
@@ -21,36 +34,123 @@ const globalStyles = `
     }
   }
 
+  /* WhatsApp-style single row video controls */
+  .video-controls-container {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .video-controls-container::-webkit-scrollbar {
+    display: none;
+  }
+
+  .video-control-btn {
+    border-radius: 50% !important;
+    width: 48px !important;
+    height: 48px !important;
+    min-width: 48px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 18px !important;
+    transition: all 0.2s ease !important;
+    flex-shrink: 0 !important;
+  }
+
+  .video-control-btn:hover {
+    transform: scale(1.08) !important;
+  }
+
+  .video-control-btn:active {
+    transform: scale(0.95) !important;
+  }
+
+  .video-control-btn.btn-leave {
+    background: #dc2626 !important;
+  }
+
+  .video-control-btn-pill {
+    border-radius: 24px !important;
+    height: 48px !important;
+    padding: 0 16px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    transition: all 0.2s ease !important;
+    border: none !important;
+  }
+
+  .video-control-btn-pill:hover {
+    transform: scale(1.05) !important;
+  }
+
   @media (max-width: 768px) {
-    .video-controls-container button {
-      height: 45px !important;
-      font-size: 13px !important;
-      padding: 0 14px !important;
+    .video-controls-container {
+      bottom: 16px !important;
+      padding: 8px 12px !important;
+      gap: 10px !important;
+      border-radius: 40px !important;
+      max-width: calc(100vw - 20px) !important;
     }
     
-    .video-controls-container button[style*="width: 50px"] {
-      width: 45px !important;
+    .video-control-btn {
+      width: 44px !important;
+      height: 44px !important;
+      min-width: 44px !important;
+      font-size: 16px !important;
+    }
+
+    .video-control-btn-pill {
+      height: 44px !important;
+      padding: 0 12px !important;
+      font-size: 12px !important;
+    }
+
+    .local-pip-container {
+      bottom: 85px !important;
+      right: 12px !important;
+      width: clamp(110px, 28vw, 150px) !important;
+      border-radius: 12px !important;
     }
   }
 
   @media (max-width: 480px) {
     .video-controls-container {
-      padding: 12px 16px !important;
+      bottom: 12px !important;
+      padding: 6px 10px !important;
       gap: 8px !important;
+      border-radius: 36px !important;
+      max-width: calc(100vw - 12px) !important;
     }
     
-    .video-controls-container button {
-      height: 40px !important;
-      font-size: 12px !important;
-      padding: 0 12px !important;
-    }
-    
-    .video-controls-container button[style*="width: 50px"] {
-      width: 40px !important;
+    .video-control-btn {
+      width: 42px !important;
+      height: 42px !important;
+      min-width: 42px !important;
+      font-size: 15px !important;
     }
 
-    .video-controls-container button[style*="width: 120px"] {
-      width: 100px !important;
+    .video-control-btn-pill {
+      height: 42px !important;
+      padding: 0 10px !important;
+      font-size: 11px !important;
+    }
+
+    .local-pip-container {
+      bottom: 75px !important;
+      right: 10px !important;
+      width: clamp(100px, 30vw, 130px) !important;
+      border-radius: 10px !important;
     }
   }
 `;
@@ -77,6 +177,7 @@ const VideoCall = () => {
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [userName, setUserName] = useState('');
+  const [remoteUserName, setRemoteUserName] = useState('');
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -93,6 +194,8 @@ const VideoCall = () => {
   const recordedChunksRef = useRef([]);
   const recordingIntervalRef = useRef(null);
   const recordingStartTimeRef = useRef(null);
+  const canvasRecordingCleanupRef = useRef(null);
+  const recordingAudioContextRef = useRef(null);
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -102,13 +205,14 @@ const VideoCall = () => {
   const remoteStreamRef = useRef(null);
   const iceCandidatesQueue = useRef([]);
   const audioContextRef = useRef(null);
-  const [remoteAudioLevel, setRemoteAudioLevel] = useState(0);
-  const [localAudioLevel, setLocalAudioLevel] = useState(0);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [audioInputDevices, setAudioInputDevices] = useState([]);
   const [audioOutputDevices, setAudioOutputDevices] = useState([]);
+  const [videoInputDevices, setVideoInputDevices] = useState([]);
   const [selectedAudioInput, setSelectedAudioInput] = useState('');
   const [selectedAudioOutput, setSelectedAudioOutput] = useState('');
+  const [selectedVideoInput, setSelectedVideoInput] = useState('');
+  const [facingMode, setFacingMode] = useState('user'); // 'user' (front) or 'environment' (back)
 
   const servers = {
     iceServers: [
@@ -139,30 +243,11 @@ const VideoCall = () => {
       const audioStream = new MediaStream([audioTrack]);
       const source = ctx.createMediaStreamSource(audioStream);
 
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.5;
-
       const gainNode = ctx.createGain();
       gainNode.gain.value = 2.0; // Boost volume so it's clearly audible
 
-      source.connect(analyser);
-      analyser.connect(gainNode);
+      source.connect(gainNode);
       gainNode.connect(ctx.destination);
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const updateLevel = () => {
-        if (!audioContextRef.current) return;
-        analyser.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
-        }
-        const avg = sum / dataArray.length;
-        setRemoteAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
-        requestAnimationFrame(updateLevel);
-      };
-      updateLevel();
 
       console.log('✅ WebAudio direct speaker pipeline active & connected to sound card (Gain: 2.0x)!');
     } catch (err) {
@@ -170,46 +255,7 @@ const VideoCall = () => {
     }
   };
 
-  const playSpeakerTestChime = () => {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioCtx();
-      }
-      const ctx = audioContextRef.current;
-      if (ctx.state === 'suspended') {
-        ctx.resume();
-      }
-
-      // Play a quick pleasant 440Hz / 880Hz chime
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
-
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start();
-      osc.stop(ctx.currentTime + 0.35);
-
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.muted = false;
-        remoteVideoRef.current.volume = 1.0;
-        remoteVideoRef.current.play().catch(() => { });
-      }
-
-      message.success('🔊 Speaker test sound played! WebAudio active.');
-    } catch (e) {
-      console.warn('Speaker test error:', e);
-    }
-  };
-
-  const loadAudioDevices = async () => {
+  const loadMediaDevices = async () => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
         return;
@@ -217,16 +263,143 @@ const VideoCall = () => {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const audioInputs = devices.filter(d => d.kind === 'audioinput');
       const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+      const videoInputs = devices.filter(d => d.kind === 'videoinput');
+
       setAudioInputDevices(audioInputs);
       setAudioOutputDevices(audioOutputs);
+      setVideoInputDevices(videoInputs);
+
       if (audioInputs.length > 0 && !selectedAudioInput) {
         setSelectedAudioInput(audioInputs[0].deviceId);
       }
       if (audioOutputs.length > 0 && !selectedAudioOutput) {
         setSelectedAudioOutput(audioOutputs[0].deviceId);
       }
+      if (videoInputs.length > 0 && !selectedVideoInput) {
+        setSelectedVideoInput(videoInputs[0].deviceId);
+      }
     } catch (err) {
-      console.warn('Error loading audio devices:', err);
+      console.warn('Error loading media devices:', err);
+    }
+  };
+
+  const switchCamera = async () => {
+    try {
+      const nextFacingMode = facingMode === 'user' ? 'environment' : 'user';
+      console.log(`📷 Switching camera from ${facingMode} to ${nextFacingMode}`);
+
+      let stream = null;
+
+      // 1. Try requesting ideal facingMode (standard for mobile browsers)
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: nextFacingMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch (err1) {
+        console.warn('Facing mode constraint switch failed, trying enumerated device fallback:', err1);
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
+        setVideoInputDevices(videoInputs);
+
+        if (videoInputs.length > 1) {
+          const currentIndex = videoInputs.findIndex(d => d.deviceId === selectedVideoInput);
+          const nextIndex = (currentIndex + 1) % videoInputs.length;
+          const nextDev = videoInputs[nextIndex];
+          setSelectedVideoInput(nextDev.deviceId);
+
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: { exact: nextDev.deviceId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+        } else {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: nextFacingMode },
+            audio: false,
+          });
+        }
+      }
+
+      if (!stream) {
+        throw new Error('No video stream obtained');
+      }
+
+      const newVideoTrack = stream.getVideoTracks()[0];
+      if (!newVideoTrack) return;
+
+      newVideoTrack.enabled = !isVideoOff;
+
+      if (localStreamRef.current) {
+        const oldTrack = localStreamRef.current.getVideoTracks()[0];
+        if (oldTrack) {
+          localStreamRef.current.removeTrack(oldTrack);
+          oldTrack.stop();
+        }
+        localStreamRef.current.addTrack(newVideoTrack);
+        setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+      }
+
+      if (peerConnection.current) {
+        const senders = peerConnection.current.getSenders();
+        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+        if (videoSender) {
+          await videoSender.replaceTrack(newVideoTrack);
+        }
+      }
+
+      setFacingMode(nextFacingMode);
+      message.success(nextFacingMode === 'environment' ? '📷 Rear camera active' : '🤳 Front camera active');
+    } catch (err) {
+      console.error('Error switching camera:', err);
+      message.error('Could not switch camera. Please verify camera permissions.');
+    }
+  };
+
+  const switchVideoDevice = async (deviceId) => {
+    try {
+      setSelectedVideoInput(deviceId);
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          deviceId: { exact: deviceId },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+      const newTrack = newStream.getVideoTracks()[0];
+      if (!newTrack) return;
+
+      newTrack.enabled = !isVideoOff;
+
+      if (localStreamRef.current) {
+        const oldTrack = localStreamRef.current.getVideoTracks()[0];
+        if (oldTrack) {
+          localStreamRef.current.removeTrack(oldTrack);
+          oldTrack.stop();
+        }
+        localStreamRef.current.addTrack(newTrack);
+        setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+      }
+
+      if (peerConnection.current) {
+        const senders = peerConnection.current.getSenders();
+        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+        if (videoSender) {
+          await videoSender.replaceTrack(newTrack);
+        }
+      }
+      message.success('Camera switched successfully');
+    } catch (err) {
+      console.error('Error switching camera device:', err);
+      message.error('Failed to switch camera');
     }
   };
 
@@ -325,7 +498,9 @@ const VideoCall = () => {
       try {
         const response = await getMeetingByRoomId(roomId);
         if (response && response.success && response.data?.claimId) {
-          setClaimId(response.data.claimId._id);
+          const claimObj = response.data.claimId;
+          const actualClaimId = claimObj.claimId || claimObj._id;
+          setClaimId(actualClaimId);
         }
       } catch (error) {
         // Silent for arbitrary test rooms
@@ -522,6 +697,9 @@ const VideoCall = () => {
       if (existingUsers && existingUsers.length > 0) {
         const otherUser = existingUsers[0];
         remoteSocketId.current = otherUser.socketId;
+        if (otherUser.userName) {
+          setRemoteUserName(otherUser.userName);
+        }
         message.info(`${otherUser.userName || 'Participant'} is already in the room. Connecting...`);
 
         // The newcomer always creates the offer to connect to the existing user
@@ -530,9 +708,12 @@ const VideoCall = () => {
     });
 
     // When an existing user receives a new participant notification, wait for their offer
-    socket.on('user-connected', ({ userName: remoteUserName, socketId }) => {
-      console.log('New user connected to room:', remoteUserName, socketId);
-      message.success(`${remoteUserName} joined the meeting`);
+    socket.on('user-connected', ({ userName: newRemoteUserName, socketId }) => {
+      console.log('New user connected to room:', newRemoteUserName, socketId);
+      if (newRemoteUserName) {
+        setRemoteUserName(newRemoteUserName);
+      }
+      message.success(`${newRemoteUserName || 'Participant'} joined the meeting`);
       remoteSocketId.current = socketId;
     });
 
@@ -641,6 +822,7 @@ const VideoCall = () => {
       message.info(`${disconnectedUser} left the meeting`);
       setRemoteStream(null);
       remoteStreamRef.current = null;
+      setRemoteUserName('');
     });
 
     // Unblock browser autoplay on any page click if previously blocked
@@ -690,34 +872,11 @@ const VideoCall = () => {
         }
       });
 
-      // Ensure all audio tracks are active and monitor volume
+      // Ensure all audio tracks are active
       stream.getAudioTracks().forEach(track => {
         track.enabled = true;
         console.log(`Microphone ready: ${track.label}, enabled: ${track.enabled}`);
       });
-
-      if (stream.getAudioTracks().length > 0) {
-        try {
-          const AudioCtx = window.AudioContext || window.webkitAudioContext;
-          const localCtx = new AudioCtx();
-          const localSource = localCtx.createMediaStreamSource(new MediaStream([stream.getAudioTracks()[0]]));
-          const localAnalyser = localCtx.createAnalyser();
-          localAnalyser.fftSize = 256;
-          localSource.connect(localAnalyser);
-          const localData = new Uint8Array(localAnalyser.frequencyBinCount);
-          const updateLocalLevel = () => {
-            localAnalyser.getByteFrequencyData(localData);
-            let sum = 0;
-            for (let i = 0; i < localData.length; i++) sum += localData[i];
-            const avg = sum / localData.length;
-            setLocalAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
-            requestAnimationFrame(updateLocalLevel);
-          };
-          updateLocalLevel();
-        } catch (e) {
-          console.warn('Local mic meter error:', e);
-        }
-      }
 
       console.log('Local stream obtained:', stream.getTracks());
       localStreamRef.current = stream;
@@ -737,7 +896,7 @@ const VideoCall = () => {
 
       setIsJoined(true);
       message.success('Joined meeting successfully!');
-      loadAudioDevices();
+      loadMediaDevices();
 
       // Mark meeting as started
       try {
@@ -1031,128 +1190,322 @@ const VideoCall = () => {
   };
 
 
+  // Mobile device detection helper
+  const isMobileDevice = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) ||
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices.getDisplayMedia !== 'function';
+  };
+
+  // Best supported MediaRecorder MIME type for cross-browser & mobile iOS/Android support
+  const getSupportedMimeType = () => {
+    if (typeof MediaRecorder === 'undefined') return '';
+    const candidates = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=h264,opus',
+      'video/webm',
+      'video/mp4;codecs=avc1,mp4a.40.2',
+      'video/mp4',
+    ];
+    for (const type of candidates) {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) {
+        return type;
+      }
+    }
+    return '';
+  };
+
+  // Mix doctor microphone and remote audio into a single stream track
+  const mixAudioTracks = (localStreamObj, remoteStreamObj) => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioCtx();
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().catch(() => {});
+      }
+      const destination = audioContext.createMediaStreamDestination();
+      let hasAudio = false;
+
+      // Doctor audio track
+      const localAudio = localStreamObj?.getAudioTracks() || [];
+      if (localAudio.length > 0 && localAudio[0].enabled) {
+        try {
+          const source1 = audioContext.createMediaStreamSource(new MediaStream([localAudio[0]]));
+          source1.connect(destination);
+          hasAudio = true;
+        } catch (e) {
+          console.warn('Could not connect local audio to recorder context:', e);
+        }
+      }
+
+      // Remote participant audio track
+      const remoteAudio = remoteStreamObj?.getAudioTracks() || [];
+      if (remoteAudio.length > 0 && remoteAudio[0].enabled) {
+        try {
+          const source2 = audioContext.createMediaStreamSource(new MediaStream([remoteAudio[0]]));
+          source2.connect(destination);
+          hasAudio = true;
+        } catch (e) {
+          console.warn('Could not connect remote audio to recorder context:', e);
+        }
+      }
+
+      const mixedAudioTrack = destination.stream.getAudioTracks()[0] || null;
+      return { mixedAudioTrack, audioContext, hasAudio };
+    } catch (err) {
+      console.warn('Audio mixing notice:', err);
+      return { mixedAudioTrack: null, audioContext: null, hasAudio: false };
+    }
+  };
+
+  // Create real-time HTML5 Canvas call compositor for mobile & desktop call recording
+  const createCallCanvasStream = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1280;
+    canvas.height = 720;
+    const ctx = canvas.getContext('2d');
+    let animationId = null;
+
+    const drawFrame = () => {
+      // 1. Fill base dark canvas
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const remoteVid = remoteVideoRef.current;
+      const localVid = localVideoRef.current;
+
+      // 2. Draw remote participant full-screen background
+      if (remoteVid && remoteVid.readyState >= 2 && !remoteVid.paused) {
+        ctx.drawImage(remoteVid, 0, 0, canvas.width, canvas.height);
+      } else {
+        // Placeholder when remote video is not loaded or waiting
+        ctx.fillStyle = '#1f2937';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#9ca3af';
+        ctx.font = 'bold 28px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(remoteUserName ? `${remoteUserName} (Patient)` : 'Patient Video Call', canvas.width / 2, canvas.height / 2);
+      }
+
+      // 3. Draw Doctor PIP in corner
+      if (localVid && localVid.readyState >= 2 && !localVid.paused) {
+        const pipW = 280;
+        const pipH = 158;
+        const pipX = canvas.width - pipW - 24;
+        const pipY = canvas.height - pipH - 24;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(pipX - 4, pipY - 4, pipW + 8, pipH + 8, 12);
+        } else {
+          ctx.rect(pipX - 4, pipY - 4, pipW + 8, pipH + 8);
+        }
+        ctx.fill();
+
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(pipX, pipY, pipW, pipH, 10);
+        } else {
+          ctx.rect(pipX, pipY, pipW, pipH);
+        }
+        ctx.clip();
+
+        if (facingMode === 'user') {
+          ctx.translate(pipX + pipW, pipY);
+          ctx.scale(-1, 1);
+          ctx.drawImage(localVid, 0, 0, pipW, pipH);
+        } else {
+          ctx.drawImage(localVid, pipX, pipY, pipW, pipH);
+        }
+        ctx.restore();
+
+        // Border
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(pipX, pipY, pipW, pipH, 10);
+        } else {
+          ctx.rect(pipX, pipY, pipW, pipH);
+        }
+        ctx.stroke();
+
+        // Doctor Name Label
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.fillRect(pipX + 8, pipY + pipH - 26, 130, 20);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '12px Inter, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(userName ? `Dr. ${userName}` : 'Doctor', pipX + 14, pipY + pipH - 12);
+      }
+
+      // 4. REC Watermark
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(36, 36, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 16px Inter, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('REC', 52, 42);
+
+      animationId = requestAnimationFrame(drawFrame);
+    };
+
+    drawFrame();
+
+    const canvasStream = canvas.captureStream(30);
+
+    const stopCanvas = () => {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+    };
+
+    return { canvasStream, stopCanvas };
+  };
+
   const startRecording = async () => {
     if (!claimId) {
       message.error('Claim ID not found');
       return;
     }
 
-    if (!localStream) {
-      message.error('Local audio stream not available');
-      return;
-    }
-
     try {
-      // Capture screen + system audio
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { mediaSource: 'screen' },
-        audio: true
-      });
+      if (typeof MediaRecorder === 'undefined') {
+        message.error('Video recording is not supported on this browser.');
+        return;
+      }
 
-      // Create a combined stream with screen video and both audio sources
+      let videoStream = null;
+      let isDisplayMedia = false;
+      const isMobile = isMobileDevice();
+
+      // If desktop and getDisplayMedia is supported, attempt screen capture
+      if (!isMobile && navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
+        try {
+          videoStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { mediaSource: 'screen' },
+            audio: true
+          });
+          isDisplayMedia = true;
+        } catch (screenErr) {
+          console.warn('Screen share cancelled/failed, falling back to call canvas stream:', screenErr);
+          // Fallback seamlessly to call recording
+        }
+      }
+
+      // For mobile, or when getDisplayMedia is unavailable/cancelled: use call canvas stream
+      if (!videoStream) {
+        const { canvasStream, stopCanvas } = createCallCanvasStream();
+        videoStream = canvasStream;
+        canvasRecordingCleanupRef.current = stopCanvas;
+      }
+
+      // Create a combined stream with video track and mixed audio
       const combinedStream = new MediaStream();
 
-      // Add video track from screen
-      const videoTrack = screenStream.getVideoTracks()[0];
+      // Add video track
+      const videoTrack = videoStream.getVideoTracks()[0];
       if (videoTrack) {
         combinedStream.addTrack(videoTrack);
       }
 
-      // Create audio context to mix audio tracks
-      const audioContext = new AudioContext();
-      const destination = audioContext.createMediaStreamDestination();
+      // Mix local and remote audio
+      const { mixedAudioTrack, audioContext } = mixAudioTracks(
+        localStreamRef.current || localStream,
+        remoteStreamRef.current || remoteStream
+      );
+      recordingAudioContextRef.current = audioContext;
 
-      // Add screen audio if available
-      const screenAudioTracks = screenStream.getAudioTracks();
-      if (screenAudioTracks.length > 0) {
-        const screenAudioSource = audioContext.createMediaStreamSource(
-          new MediaStream([screenAudioTracks[0]])
-        );
-        screenAudioSource.connect(destination);
-        console.log('✅ Added screen audio to recording');
-      }
-
-      // Add doctor's microphone audio
-      const localAudioTracks = (localStreamRef.current || localStream)?.getAudioTracks() || [];
-      if (localAudioTracks.length > 0) {
-        const micAudioSource = audioContext.createMediaStreamSource(
-          new MediaStream([localAudioTracks[0]])
-        );
-        micAudioSource.connect(destination);
-        console.log('✅ Added doctor microphone audio to recording');
+      if (mixedAudioTrack) {
+        combinedStream.addTrack(mixedAudioTrack);
       } else {
-        console.warn('⚠️ No microphone audio track found');
+        // Fallback: add direct local audio track if available
+        const directAudio = (localStreamRef.current || localStream)?.getAudioTracks()[0];
+        if (directAudio) {
+          combinedStream.addTrack(directAudio);
+        }
       }
 
-      // Add remote user's audio to recording if available
-      const currentRemoteStream = remoteStreamRef.current || remoteStream;
-      if (currentRemoteStream && currentRemoteStream.getAudioTracks().length > 0) {
-        const remoteAudioSource = audioContext.createMediaStreamSource(
-          new MediaStream([currentRemoteStream.getAudioTracks()[0]])
-        );
-        remoteAudioSource.connect(destination);
-        console.log('✅ Added remote participant audio to recording');
+      // If screen share had audio track, include it too
+      if (isDisplayMedia && videoStream.getAudioTracks().length > 0) {
+        try {
+          combinedStream.addTrack(videoStream.getAudioTracks()[0]);
+        } catch (e) {}
       }
 
-      // Add the mixed audio track to combined stream
-      if (destination.stream.getAudioTracks().length > 0) {
-        combinedStream.addTrack(destination.stream.getAudioTracks()[0]);
-      }
+      // Determine best supported MIME type
+      const mimeType = getSupportedMimeType();
+      const recorderOptions = mimeType ? { mimeType } : undefined;
 
-      console.log('Recording stream tracks:', {
-        video: combinedStream.getVideoTracks().length,
-        audio: combinedStream.getAudioTracks().length
-      });
+      console.log('Starting MediaRecorder with mimeType:', mimeType || 'browser default');
 
-      // Create media recorder with combined stream
-      const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
-        ? 'video/webm; codecs=vp9'
-        : 'video/webm';
-
-      mediaRecorderRef.current = new MediaRecorder(combinedStream, {
-        mimeType: mimeType,
-        videoBitsPerSecond: 2500000 // 2.5 Mbps
-      });
-
+      mediaRecorderRef.current = new MediaRecorder(combinedStream, recorderOptions);
       recordedChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
+        if (event.data && event.data.size > 0) {
           recordedChunksRef.current.push(event.data);
         }
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        const duration = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000);
-        await saveRecording(duration);
-        screenStream.getTracks().forEach(track => track.stop());
-        combinedStream.getTracks().forEach(track => track.stop());
-        audioContext.close();
+        const duration = Math.max(1, Math.floor((Date.now() - recordingStartTimeRef.current) / 1000));
+        
+        // Clean up tracks
+        if (videoStream) {
+          videoStream.getTracks().forEach(track => track.stop());
+        }
+        if (combinedStream) {
+          combinedStream.getTracks().forEach(track => track.stop());
+        }
+        if (canvasRecordingCleanupRef.current) {
+          canvasRecordingCleanupRef.current();
+          canvasRecordingCleanupRef.current = null;
+        }
+        if (recordingAudioContextRef.current) {
+          try {
+            recordingAudioContextRef.current.close();
+          } catch (e) {}
+          recordingAudioContextRef.current = null;
+        }
+
+        await saveRecording(duration, mimeType);
       };
 
-      // Start recording
-      mediaRecorderRef.current.start(1000); // Collect data every 1 second
+      // Start recording with 1s timeslice
+      mediaRecorderRef.current.start(1000);
       recordingStartTimeRef.current = Date.now();
       setIsRecording(true);
       setRecordingDuration(0);
 
-      // Update duration every second
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
       recordingIntervalRef.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
       }, 1000);
 
-      message.success('🔴 Screen recording started with your microphone!');
+      message.success(isDisplayMedia ? '🔴 Screen recording started!' : '🔴 Call recording started!');
 
-      // Handle user stopping screen share
-      screenStream.getVideoTracks()[0].onended = () => {
-        stopRecording();
-      };
+      if (isDisplayMedia && videoTrack) {
+        videoTrack.onended = () => {
+          stopRecording();
+        };
+      }
     } catch (error) {
       console.error('Error starting recording:', error);
-      if (error.name === 'NotAllowedError') {
-        message.error('Screen recording permission denied');
-      } else {
-        message.error('Failed to start recording: ' + error.message);
+      message.error('Failed to start recording: ' + (error.message || error.name || 'Unknown error'));
+      if (canvasRecordingCleanupRef.current) {
+        canvasRecordingCleanupRef.current();
+        canvasRecordingCleanupRef.current = null;
       }
     }
   };
@@ -1171,23 +1524,26 @@ const VideoCall = () => {
     }
   };
 
-  const saveRecording = async (duration) => {
+  const saveRecording = async (duration, mimeType) => {
     if (recordedChunksRef.current.length === 0) {
-      message.error('No recording data to save');
+      message.error('No recording data captured');
       return;
     }
 
     const hideMsg = message.loading('💾 Uploading recording...', 0);
 
     try {
-      // Create blob from recorded chunks
+      const actualMime = mimeType || (recordedChunksRef.current[0] && recordedChunksRef.current[0].type) || 'video/webm';
+      const fileExt = actualMime.includes('mp4') ? 'mp4' : 'webm';
+
       const blob = new Blob(recordedChunksRef.current, {
-        type: 'video/webm'
+        type: actualMime
       });
 
       console.log('Recording details:', {
         size: `${(blob.size / 1024 / 1024).toFixed(2)} MB`,
         duration: `${duration}s`,
+        mimeType: actualMime,
         claimId
       });
 
@@ -1195,14 +1551,14 @@ const VideoCall = () => {
       const user = JSON.parse(localStorage.getItem('user') || '{}');
       const token = user.token;
 
-      // Upload recording
-      const response = await uploadRecording(claimId, blob, duration, token);
+      // Upload recording with appropriate file extension
+      const response = await uploadRecording(claimId, blob, duration, token, fileExt);
 
       hideMsg();
 
       if (response.success) {
         message.success({
-          content: `✅ Recording saved to Claim ${response.data.claimId}! (${(blob.size / 1024 / 1024).toFixed(2)} MB, ${duration}s)`,
+          content: `✅ Recording saved to Claim ${response.data?.claimId || ''}! (${(blob.size / 1024 / 1024).toFixed(2)} MB, ${duration}s)`,
           duration: 5,
         });
       }
@@ -1362,37 +1718,26 @@ const VideoCall = () => {
               objectFit: 'cover',
             }}
           />
-          {/* Remote Video Label with Live Voice Level Meter */}
-          <div style={{
-            position: 'absolute',
-            top: '20px',
-            left: '20px',
-            background: 'rgba(0, 0, 0, 0.7)',
-            backdropFilter: 'blur(10px)',
-            color: '#ffffff',
-            padding: '8px 16px',
-            borderRadius: '8px',
-            fontSize: '14px',
-            fontWeight: 500,
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px'
-          }}>
-            <span>🟢 Remote User</span>
-            <span style={{
-              color: remoteAudioLevel > 3 ? '#34d399' : '#9ca3af',
-              fontSize: '12px',
-              fontWeight: 600,
-              padding: '3px 8px',
-              background: remoteAudioLevel > 3 ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.1)',
-              borderRadius: '4px',
-              border: remoteAudioLevel > 3 ? '1px solid rgba(52, 211, 153, 0.5)' : '1px solid transparent',
-              transition: 'all 0.15s ease'
+          {/* Remote Video Label - Shown for Doctor with Patient Name */}
+          {role === 'doctor' && (
+            <div style={{
+              position: 'absolute',
+              top: '20px',
+              left: '20px',
+              background: 'rgba(0, 0, 0, 0.7)',
+              backdropFilter: 'blur(10px)',
+              color: '#ffffff',
+              padding: '8px 16px',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: 500,
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
             }}>
-              {remoteAudioLevel > 3 ? `🔊 Voice Active (${remoteAudioLevel}%)` : '🔈 Audio Connected'}
-            </span>
-          </div>
+              <span>🟢 {remoteUserName || 'Patient'}</span>
+            </div>
+          )}
           {/* Capture Patient Image Button */}
           {role === 'doctor' && (
             <Button
@@ -1419,7 +1764,7 @@ const VideoCall = () => {
           )}
         </div>
       ) : (
-        /* Waiting for Remote User */
+        /* Waiting for Other User */
         <div style={{
           position: 'fixed',
           top: 0,
@@ -1441,27 +1786,29 @@ const VideoCall = () => {
               marginTop: '20px',
               fontWeight: 500,
             }}>
-              Waiting for remote user to join...
+              {role === 'doctor' ? 'Waiting for patient to join...' : 'Waiting for doctor to join...'}
             </Text>
           </div>
         </div>
       )}
 
       {/* Picture-in-Picture Local Video (Small Overlay) */}
-      <div style={{
-        position: 'fixed',
-        bottom: '140px',
-        right: '20px',
-        width: 'clamp(180px, 25vw, 320px)',
-        aspectRatio: '16/9',
-        background: '#1f2937',
-        borderRadius: '16px',
-        overflow: 'hidden',
-        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
-        border: '3px solid rgba(16, 185, 129, 0.5)',
-        zIndex: 10,
-        transition: 'all 0.3s ease',
-      }}>
+      <div 
+        className="local-pip-container"
+        style={{
+          position: 'fixed',
+          bottom: '100px',
+          right: '20px',
+          width: 'clamp(140px, 22vw, 280px)',
+          aspectRatio: '16/9',
+          background: '#1f2937',
+          borderRadius: '16px',
+          overflow: 'hidden',
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
+          border: '3px solid rgba(16, 185, 129, 0.5)',
+          zIndex: 10,
+          transition: 'all 0.3s ease',
+        }}>
         <video
           ref={localVideoRef}
           autoPlay
@@ -1471,7 +1818,7 @@ const VideoCall = () => {
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            transform: 'scaleX(-1)',
+            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
           }}
         />
         {/* Local Video Label */}
@@ -1491,14 +1838,36 @@ const VideoCall = () => {
           gap: '6px',
         }}>
           <span>You ({userName})</span>
-          <span style={{
-            color: isMuted ? '#ef4444' : (localAudioLevel > 3 ? '#34d399' : '#9ca3af'),
-            fontWeight: 600,
-            fontSize: '11px',
-          }}>
-            {isMuted ? '🔇 Muted' : (localAudioLevel > 3 ? `🎤 ${localAudioLevel}%` : '🎤 Quiet')}
-          </span>
+          {isMuted && (
+            <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '11px' }}>
+              🔇 Muted
+            </span>
+          )}
         </div>
+        {/* Quick Flip Camera Button on Local PIP */}
+        <Button
+          icon={<SyncOutlined />}
+          onClick={switchCamera}
+          size="small"
+          style={{
+            position: 'absolute',
+            top: '8px',
+            left: '8px',
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(6px)',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '50%',
+            width: '28px',
+            height: '28px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '12px',
+            padding: 0,
+          }}
+          title="Switch camera"
+        />
         {/* Capture My Image Button */}
         {role === 'doctor' && (
           <Button
@@ -1574,120 +1943,103 @@ const VideoCall = () => {
         </div>
       )}
 
-      {/* Controls - Bottom Fixed */}
+      {/* Controls - Bottom Fixed Single Row (WhatsApp style) */}
       <div
         className="video-controls-container"
         style={{
           position: 'fixed',
-          bottom: '20px',
+          bottom: '24px',
           left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(31, 41, 55, 0.95)',
-          backdropFilter: 'blur(16px)',
-          borderRadius: '16px',
-          padding: '16px 24px',
+          background: 'rgba(24, 24, 27, 0.88)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderRadius: '50px',
+          padding: '10px 18px',
           display: 'flex',
-          flexWrap: 'wrap',
+          flexDirection: 'row',
+          flexWrap: 'nowrap',
+          alignItems: 'center',
           justifyContent: 'center',
           gap: '12px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
-          border: '2px solid rgba(16, 185, 129, 0.3)',
-          zIndex: 10,
-          maxWidth: 'calc(100vw - 40px)',
+          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.6)',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          zIndex: 20,
+          maxWidth: 'calc(100vw - 24px)',
+          overflowX: 'auto',
         }}>
         <Button
-          size="large"
+          className="video-control-btn"
           icon={isMuted ? <AudioMutedOutlined /> : <AudioOutlined />}
           onClick={toggleMute}
           style={{
-            background: isMuted ? '#ef4444' : '#10b981',
+            background: isMuted ? '#ef4444' : 'rgba(255, 255, 255, 0.15)',
             color: '#ffffff',
-            border: 'none',
-            borderRadius: '8px',
-            height: '50px',
-            width: '50px',
+            border: isMuted ? 'none' : '1px solid rgba(255, 255, 255, 0.2)',
           }}
+          title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
         />
 
         <Button
-          size="large"
+          className="video-control-btn"
           icon={<VideoCameraOutlined />}
           onClick={toggleVideo}
           style={{
-            background: isVideoOff ? '#ef4444' : '#10b981',
+            background: isVideoOff ? '#ef4444' : 'rgba(255, 255, 255, 0.15)',
             color: '#ffffff',
-            border: 'none',
-            borderRadius: '8px',
-            height: '50px',
-            width: '50px',
+            border: isVideoOff ? 'none' : '1px solid rgba(255, 255, 255, 0.2)',
           }}
+          title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
         />
 
         <Button
-          size="large"
-          onClick={playSpeakerTestChime}
+          className="video-control-btn"
+          icon={<SyncOutlined />}
+          onClick={switchCamera}
           style={{
             background: 'rgba(255, 255, 255, 0.15)',
             color: '#ffffff',
-            border: '1px solid rgba(255, 255, 255, 0.3)',
-            borderRadius: '8px',
-            height: '50px',
-            padding: '0 16px',
-            fontWeight: 500,
+            border: '1px solid rgba(255, 255, 255, 0.2)',
           }}
-          title="Test speaker output & unmute audio"
-        >
-          🔊 Test Audio
-        </Button>
+          title="Switch / Flip Camera"
+        />
 
         {role === 'doctor' && (
           <>
             <Button
-              size="large"
+              className="video-control-btn-pill"
               icon={isRecording ? <StopOutlined /> : <PlayCircleOutlined />}
               onClick={isRecording ? stopRecording : startRecording}
               style={{
                 background: isRecording ? '#ef4444' : '#dc2626',
                 color: '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                height: '50px',
-                padding: '0 20px',
-                fontWeight: 600,
                 animation: isRecording ? 'pulse 1.5s infinite' : 'none',
               }}
+              title="Record Meeting"
             >
               {isRecording ? `Stop (${Math.floor(recordingDuration / 60)}:${(recordingDuration % 60).toString().padStart(2, '0')})` : 'Record'}
             </Button>
             <Button
-              size="large"
+              className="video-control-btn-pill"
               icon={<EnvironmentOutlined />}
               onClick={() => captureLocation('doctor')}
               style={{
                 background: '#f59e0b',
                 color: '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                height: '50px',
-                padding: '0 20px',
-                fontWeight: 600,
               }}
+              title="My Location"
             >
               My Location
             </Button>
             <Button
-              size="large"
+              className="video-control-btn-pill"
               icon={<EnvironmentOutlined />}
               onClick={() => captureLocation('patient')}
               style={{
                 background: '#ec4899',
                 color: '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                height: '50px',
-                padding: '0 20px',
-                fontWeight: 600,
               }}
+              title="Patient Location"
             >
               Patient Location
             </Button>
@@ -1695,42 +2047,37 @@ const VideoCall = () => {
         )}
 
         <Button
-          size="large"
+          className="video-control-btn"
           icon={<SettingOutlined />}
           onClick={() => {
-            loadAudioDevices();
+            loadMediaDevices();
             setShowSettingsModal(true);
           }}
           style={{
             background: 'rgba(255, 255, 255, 0.15)',
             color: '#ffffff',
-            border: '1px solid rgba(255, 255, 255, 0.3)',
-            borderRadius: '8px',
-            height: '50px',
-            width: '50px',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
           }}
-          title="Audio & Device Settings"
+          title="Audio & Video Settings"
         />
 
         <Button
-          size="large"
+          className="video-control-btn btn-leave"
           danger
           icon={<PhoneOutlined style={{ transform: 'rotate(135deg)' }} />}
           onClick={leaveMeeting}
           style={{
-            borderRadius: '8px',
-            height: '50px',
-            width: '120px',
-            fontWeight: 600,
+            background: '#dc2626',
+            color: '#ffffff',
+            border: 'none',
           }}
-        >
-          Leave
-        </Button>
+          title="Leave Meeting"
+        />
       </div>
 
       {/* Audio & Device Settings Modal */}
       <Modal
-        title="⚙️ Audio & Device Settings"
+        title="⚙️ Audio & Video Settings"
         open={showSettingsModal}
         onOk={() => setShowSettingsModal(false)}
         onCancel={() => setShowSettingsModal(false)}
@@ -1741,6 +2088,24 @@ const VideoCall = () => {
         ]}
       >
         <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: '6px' }}>
+              📷 Select Camera:
+            </Text>
+            <Select
+              style={{ width: '100%' }}
+              value={selectedVideoInput}
+              onChange={switchVideoDevice}
+              placeholder="Select your camera"
+            >
+              {videoInputDevices.map((dev, idx) => (
+                <Select.Option key={dev.deviceId} value={dev.deviceId}>
+                  {dev.label || `Camera ${idx + 1}`}
+                </Select.Option>
+              ))}
+            </Select>
+          </div>
+
           <div>
             <Text strong style={{ display: 'block', marginBottom: '6px' }}>
               🎤 Select Microphone:
@@ -1757,26 +2122,6 @@ const VideoCall = () => {
                 </Select.Option>
               ))}
             </Select>
-            <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Text type="secondary" style={{ fontSize: '12px' }}>Live Mic Input:</Text>
-              <div style={{
-                flex: 1,
-                height: '10px',
-                background: '#e5e7eb',
-                borderRadius: '5px',
-                overflow: 'hidden'
-              }}>
-                <div style={{
-                  height: '100%',
-                  width: `${localAudioLevel}%`,
-                  background: localAudioLevel > 3 ? '#10b981' : '#9ca3af',
-                  transition: 'width 0.1s ease'
-                }} />
-              </div>
-              <Text style={{ fontSize: '12px', fontWeight: 600, minWidth: '35px' }}>
-                {localAudioLevel}%
-              </Text>
-            </div>
           </div>
 
           <div>
@@ -1795,23 +2140,6 @@ const VideoCall = () => {
                 </Select.Option>
               ))}
             </Select>
-          </div>
-
-          <div style={{
-            background: '#f3f4f6',
-            padding: '12px 16px',
-            borderRadius: '8px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
-          }}>
-            <div>
-              <Text strong style={{ display: 'block' }}>Test Speakers</Text>
-              <Text type="secondary" style={{ fontSize: '12px' }}>Plays a test chime to verify sound card</Text>
-            </div>
-            <Button onClick={playSpeakerTestChime} icon={<AudioOutlined />}>
-              Play Test Chime
-            </Button>
           </div>
         </div>
       </Modal>

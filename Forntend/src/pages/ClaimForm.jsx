@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, Row, Col, DatePicker, Upload, Select, Radio, message } from 'antd';
 import { UploadOutlined, ArrowLeftOutlined, VideoCameraOutlined } from '@ant-design/icons';
-import { submitClaimForm, getMeetingByClaimId } from '../services/api';
+import { submitClaimForm, getMeetingByClaimId, getClaimById } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
 
 const { Title, Text } = Typography;
@@ -18,6 +18,8 @@ const ClaimForm = () => {
   const [loading, setLoading] = useState(false);
   const [fileList, setFileList] = useState([]);
   const [meetingRoomId, setMeetingRoomId] = useState(null);
+  const [claimData, setClaimData] = useState(null);
+  const [actualClaimId, setActualClaimId] = useState(claimId);
 
   const handleSubmit = async (values) => {
     setLoading(true);
@@ -38,8 +40,9 @@ const ClaimForm = () => {
         }
       });
 
-      // Add claim ID
-      formData.append('claim_id', claimId);
+      // Add target claim identifier (Mongo ID or custom claimId)
+      const targetClaimId = claimData?._id || actualClaimId || claimId;
+      formData.append('claim_id', targetClaimId);
 
       // Add documents
       fileList.forEach(file => {
@@ -50,9 +53,9 @@ const ClaimForm = () => {
 
       if (response.success) {
         message.success('Claim form submitted successfully! Redirecting to PDF preview...');
-        // Navigate to PDF preview page
+        const finalRedirectId = actualClaimId || claimData?.claimId || claimId;
         setTimeout(() => {
-          navigate(`/pdf-preview?claimId=${claimId}`);
+          navigate(`/pdf-preview?claimId=${finalRedirectId}`);
         }, 1000);
       }
     } catch (error) {
@@ -67,23 +70,55 @@ const ClaimForm = () => {
     setFileList(newFileList);
   };
 
-  // Fetch meeting details to get room ID for rejoin
+  // Fetch claim details & meeting details on load
   useEffect(() => {
-    const fetchMeetingDetails = async () => {
+    const fetchClaimAndMeeting = async () => {
       if (claimId) {
         try {
           const user = JSON.parse(localStorage.getItem('user') || '{}');
-          const response = await getMeetingByClaimId(claimId, user.token);
-          if (response.success && response.data.roomId) {
-            setMeetingRoomId(response.data.roomId);
+          if (user.token) {
+            // 1. Fetch claim details
+            try {
+              const claimRes = await getClaimById(claimId, user.token);
+              if (claimRes.success && claimRes.data) {
+                const c = claimRes.data;
+                setClaimData(c);
+                const displayId = c.claimId || c._id;
+                setActualClaimId(displayId);
+
+                // Pre-fill initial form fields with existing claim details
+                form.setFieldsValue({
+                  patient_name: c.patientName,
+                  patient_mobile: c.patientMobile,
+                  hospital_city: c.hospitalCity,
+                  hospital_state: c.hospitalState,
+                  patient_language: c.patientLanguage,
+                  doctor_name: c.doctorName || user.name,
+                  doctor_email: c.doctorEmail || user.email,
+                  ...(c.formData || {})
+                });
+              }
+            } catch (err) {
+              console.warn('Error loading claim details in form:', err);
+            }
+
+            // 2. Fetch meeting details
+            try {
+              const meetRes = await getMeetingByClaimId(claimId, user.token);
+              if (meetRes.success && meetRes.data?.roomId) {
+                setMeetingRoomId(meetRes.data.roomId);
+              }
+            } catch (err) {
+              console.warn('Error loading meeting details in form:', err);
+            }
           }
         } catch (error) {
-          console.error('Error fetching meeting details:', error);
+          console.error('Error fetching claim/meeting details:', error);
         }
       }
     };
-    fetchMeetingDetails();
-  }, [claimId]);
+    fetchClaimAndMeeting();
+  }, [claimId, form]);
 
   return (
     <div style={{
@@ -133,7 +168,7 @@ const ClaimForm = () => {
             📋 Detailed Claim Form
           </Title>
           <Text style={{ display: 'block', textAlign: 'center', marginBottom: '30px', color: '#667eea', fontSize: '16px' }}>
-            Claim ID: <strong style={{ color: '#764ba2' }}>{claimId}</strong>
+            Claim ID: <strong style={{ color: '#764ba2' }}>{actualClaimId || claimId}</strong>
           </Text>
 
           <Form

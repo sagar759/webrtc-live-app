@@ -403,9 +403,21 @@ function Home() {
       const response = await createMeeting(record.key, userToken);
 
       if (response.success) {
-        const { patientLink } = response.data;
+        const { roomId, patientLink } = response.data;
+        const currentOrigin = window.location.origin;
+        let finalPatientLink = `${currentOrigin}/meeting/${roomId}?role=patient`;
+
+        if (!roomId && patientLink) {
+          try {
+            const urlObj = new URL(patientLink);
+            finalPatientLink = `${currentOrigin}${urlObj.pathname}${urlObj.search}`;
+          } catch (e) {
+            finalPatientLink = patientLink;
+          }
+        }
+
         // Copy to clipboard
-        await navigator.clipboard.writeText(patientLink);
+        await navigator.clipboard.writeText(finalPatientLink);
         message.success('Patient link copied to clipboard!');
       }
     } catch (error) {
@@ -591,7 +603,7 @@ function Home() {
               <Button
                 type="primary"
                 icon={<FileTextOutlined />}
-                onClick={() => navigate(`/claim-form?claimId=${record.key}`)}
+                onClick={() => navigate(`/claim-form?claimId=${record.claimId || record.key}`)}
                 style={{
                   background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
                   border: 'none',

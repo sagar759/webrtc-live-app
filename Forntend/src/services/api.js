@@ -442,11 +442,12 @@ export const saveLocation = async (claimId, locationType, userName, latitude, lo
   }
 };
 
-// Upload screen recording to claim
-export const uploadRecording = async (claimId, recordingBlob, duration, token) => {
+// Upload screen / call recording to claim
+export const uploadRecording = async (claimId, recordingBlob, duration, token, ext = 'webm') => {
   try {
+    const fileExt = ext || (recordingBlob.type && recordingBlob.type.includes('mp4') ? 'mp4' : 'webm');
     const formData = new FormData();
-    formData.append('recording', recordingBlob, `recording-${Date.now()}.webm`);
+    formData.append('recording', recordingBlob, `recording-${Date.now()}.${fileExt}`);
     formData.append('duration', duration.toString());
 
     const response = await fetch(`${API_BASE_URL}/claims/${claimId}/recording`, {

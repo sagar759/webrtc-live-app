@@ -151,7 +151,7 @@ exports.updateClaimStatus = async (req, res) => {
       return res.status(400).json({ message: 'Please provide status' });
     }
 
-    const claim = await Claim.findById(req.params.id);
+    const claim = await findClaimByIdOrCustomId(req.params.id);
 
     if (!claim) {
       return res.status(404).json({ message: 'Claim not found' });
@@ -205,7 +205,7 @@ exports.uploadCapturedImage = async (req, res) => {
       });
     }
 
-    const claim = await Claim.findById(claimId);
+    const claim = await findClaimByIdOrCustomId(claimId);
 
     if (!claim) {
       return res.status(404).json({ 
@@ -291,7 +291,7 @@ exports.uploadSignature = async (req, res) => {
       });
     }
 
-    const claim = await Claim.findById(claimId);
+    const claim = await findClaimByIdOrCustomId(claimId);
 
     if (!claim) {
       return res.status(404).json({ 
@@ -529,7 +529,7 @@ exports.uploadRecording = async (req, res) => {
       });
     }
 
-    const claim = await Claim.findById(claimId);
+    const claim = await findClaimByIdOrCustomId(claimId);
 
     if (!claim) {
       return res.status(404).json({ 
@@ -596,7 +596,7 @@ exports.submitClaimForm = async (req, res) => {
     console.log(`Form Fields:`, Object.keys(formFields));
     console.log(`Files:`, req.files ? req.files.length : 0);
 
-    const claim = await Claim.findById(claimId);
+    const claim = await findClaimByIdOrCustomId(claimId);
 
     if (!claim) {
       return res.status(404).json({ 

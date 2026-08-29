@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card, Typography, Space, message, Spin } from 'antd';
 import { DownloadOutlined, ArrowLeftOutlined, FilePdfOutlined, HomeOutlined } from '@ant-design/icons';
-import { API_BASE_URL } from '../services/api';
+import { API_BASE_URL, getClaimById } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
 
 const { Title, Text } = Typography;
@@ -13,13 +13,34 @@ const PDFPreview = () => {
   const claimId = searchParams.get('claimId');
   const [loading, setLoading] = useState(true);
   const [pdfUrl, setPdfUrl] = useState('');
+  const [actualClaimId, setActualClaimId] = useState(claimId);
+  const [patientName, setPatientName] = useState('');
 
   useEffect(() => {
     if (claimId) {
       // Set PDF URL
       const url = `${API_BASE_URL}/claims/${claimId}/pdf`;
       setPdfUrl(url);
-      setLoading(false);
+
+      // Fetch claim details to display actual claim number
+      const fetchClaimInfo = async () => {
+        try {
+          const user = JSON.parse(localStorage.getItem('user') || '{}');
+          if (user.token) {
+            const res = await getClaimById(claimId, user.token);
+            if (res.success && res.data) {
+              setActualClaimId(res.data.claimId || res.data._id);
+              setPatientName(res.data.patientName || '');
+            }
+          }
+        } catch (e) {
+          console.warn('Notice loading claim info for PDF preview:', e);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchClaimInfo();
     } else {
       message.error('Claim ID not found');
       navigate('/home');
@@ -33,7 +54,8 @@ const PDFPreview = () => {
       // Create download link
       const link = document.createElement('a');
       link.href = pdfUrl;
-      link.download = `claim-${claimId}-report.pdf`;
+      const downloadName = actualClaimId || claimId;
+      link.download = `claim-${downloadName}-report.pdf`;
       link.target = '_blank';
       document.body.appendChild(link);
       link.click();
@@ -86,7 +108,8 @@ const PDFPreview = () => {
                   PDF Report Preview
                 </Title>
                 <Text style={{ color: '#6b7280', fontSize: '16px' }}>
-                  Claim ID: <strong style={{ color: '#764ba2' }}>{claimId}</strong>
+                  Claim ID: <strong style={{ color: '#764ba2' }}>{actualClaimId || claimId}</strong>
+                  {patientName && <span style={{ marginLeft: '12px', color: '#374151' }}>| Patient: <strong>{patientName}</strong></span>}
                 </Text>
               </div>
             </div>
