@@ -14,7 +14,8 @@ import {
   PlayCircleOutlined, 
   StopOutlined, 
   SettingOutlined,
-  SyncOutlined 
+  SyncOutlined,
+  SwapOutlined
 } from '@ant-design/icons';
 import io from 'socket.io-client';
 import { getMeetingByRoomId, uploadCapturedImage, saveLocation, uploadRecording, completeMeetingByRoomId, startMeetingByRoomId } from '../services/api';
@@ -95,6 +96,12 @@ const globalStyles = `
     transform: scale(1.05) !important;
   }
 
+  /* WhatsApp-style portrait floating PiP window */
+  .local-pip-container {
+    aspect-ratio: 9 / 16 !important;
+    border-radius: 16px !important;
+  }
+
   @media (max-width: 768px) {
     .video-controls-container {
       bottom: 16px !important;
@@ -118,10 +125,9 @@ const globalStyles = `
     }
 
     .local-pip-container {
-      bottom: 85px !important;
-      right: 12px !important;
       width: clamp(110px, 28vw, 150px) !important;
-      border-radius: 12px !important;
+      aspect-ratio: 9 / 16 !important;
+      border-radius: 14px !important;
     }
   }
 
@@ -148,10 +154,9 @@ const globalStyles = `
     }
 
     .local-pip-container {
-      bottom: 75px !important;
-      right: 10px !important;
       width: clamp(100px, 30vw, 130px) !important;
-      border-radius: 10px !important;
+      aspect-ratio: 9 / 16 !important;
+      border-radius: 12px !important;
     }
   }
 `;
@@ -214,6 +219,18 @@ const VideoCall = () => {
   const [selectedAudioOutput, setSelectedAudioOutput] = useState('');
   const [selectedVideoInput, setSelectedVideoInput] = useState('');
   const [facingMode, setFacingMode] = useState('user'); // 'user' (front) or 'environment' (back)
+  const [pipPosition, setPipPosition] = useState(null); // { x, y } or null (defaults to corner)
+  const [isDragging, setIsDragging] = useState(false);
+  const [isSwapped, setIsSwapped] = useState(false); // false = main is remote, pip is local; true = main is local, pip is remote
+  const pipRef = useRef(null);
+  const dragData = useRef({
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    initialLeft: 0,
+    initialTop: 0,
+    hasMoved: false,
+  });
 
   const servers = {
     iceServers: [
@@ -530,19 +547,132 @@ const VideoCall = () => {
     };
   }, [roomId]);
 
-  // Update local video when localStream changes
+  // Boundary clamping for PiP window (keeps window within screen margins)
+  const clampPosition = (x, y) => {
+    const pipEl = pipRef.current;
+    const width = pipEl ? pipEl.offsetWidth : 160;
+    const height = pipEl ? pipEl.offsetHeight : 284;
+    const margin = 8;
+    const minX = margin;
+    const minY = margin;
+    const maxX = Math.max(margin, window.innerWidth - width - margin);
+    const maxY = Math.max(margin, window.innerHeight - height - margin);
+    return {
+      x: Math.max(minX, Math.min(x, maxX)),
+      y: Math.max(minY, Math.min(y, maxY)),
+    };
+  };
+
+  const startDrag = (clientX, clientY) => {
+    if (!pipRef.current) return;
+    const rect = pipRef.current.getBoundingClientRect();
+    dragData.current = {
+      isDragging: true,
+      startX: clientX,
+      startY: clientY,
+      initialLeft: rect.left,
+      initialTop: rect.top,
+      hasMoved: false,
+    };
+    setIsDragging(true);
+  };
+
+  const handleMouseDown = (e) => {
+    if (e.target.closest('button') || e.target.closest('.ant-btn')) return;
+    e.preventDefault();
+    startDrag(e.clientX, e.clientY);
+  };
+
+  const handleTouchStart = (e) => {
+    if (e.target.closest('button') || e.target.closest('.ant-btn')) return;
+    if (e.touches && e.touches.length > 0) {
+      startDrag(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  };
+
+  const handlePipClick = (e) => {
+    if (e.target.closest('button') || e.target.closest('.ant-btn')) return;
+    // Only swap if it was a quick tap/click without significant drag movement
+    if (!dragData.current.hasMoved) {
+      setIsSwapped(prev => !prev);
+    }
+  };
+
+  // Global listeners for dragging and dropping PiP window anywhere
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!dragData.current.isDragging) return;
+      const deltaX = e.clientX - dragData.current.startX;
+      const deltaY = e.clientY - dragData.current.startY;
+      if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {
+        dragData.current.hasMoved = true;
+      }
+      const targetX = dragData.current.initialLeft + deltaX;
+      const targetY = dragData.current.initialTop + deltaY;
+      setPipPosition(clampPosition(targetX, targetY));
+    };
+
+    const handleTouchMove = (e) => {
+      if (!dragData.current.isDragging || !e.touches || e.touches.length === 0) return;
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - dragData.current.startX;
+      const deltaY = touch.clientY - dragData.current.startY;
+      if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {
+        dragData.current.hasMoved = true;
+      }
+      const targetX = dragData.current.initialLeft + deltaX;
+      const targetY = dragData.current.initialTop + deltaY;
+      setPipPosition(clampPosition(targetX, targetY));
+    };
+
+    const handleDragEnd = () => {
+      if (dragData.current.isDragging) {
+        dragData.current.isDragging = false;
+        setIsDragging(false);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleDragEnd);
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleDragEnd);
+    window.addEventListener('touchcancel', handleDragEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleDragEnd);
+      window.removeEventListener('touchcancel', handleDragEnd);
+    };
+  }, []);
+
+  // Keep PiP window safely inside viewport on screen resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (pipPosition && pipRef.current) {
+        setPipPosition(prev => prev ? clampPosition(prev.x, prev.y) : null);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [pipPosition]);
+
+  // Update local video when localStream or isSwapped changes
   useEffect(() => {
     if (localStream && localVideoRef.current) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.muted = true;
+      localVideoRef.current.play().catch(() => {});
     }
-  }, [localStream]);
+  }, [localStream, isSwapped]);
 
-  // Update remote video when remoteStream changes
+  // Update remote video when remoteStream or isSwapped changes
   useEffect(() => {
     if (remoteStream && remoteVideoRef.current) {
       attachStreamToElement(remoteVideoRef.current, remoteStream);
     }
-  }, [remoteStream]);
+  }, [remoteStream, isSwapped]);
 
   const processQueuedIceCandidates = async () => {
     while (iceCandidatesQueue.current.length > 0) {
@@ -1727,48 +1857,58 @@ const VideoCall = () => {
       background: '#000000',
       overflow: 'hidden',
     }}>
-      {/* Full Screen Remote Video (Background) */}
-      {remoteStream ? (
+      {/* Full Screen Video (Background) */}
+      {(!isSwapped ? remoteStream : localStream) ? (
         <div style={{
           position: 'fixed',
           top: 0,
           left: 0,
           width: '100%',
           height: '100%',
-          background: '#1a1a1a',
+          background: '#111827',
           zIndex: 1,
         }}>
           <video
-            ref={remoteVideoRef}
+            ref={!isSwapped ? remoteVideoRef : localVideoRef}
             autoPlay
             playsInline
+            muted={isSwapped} // Always mute local stream when in fullscreen
             style={{
               width: '100%',
               height: '100%',
               objectFit: 'cover',
+              transform: (!isSwapped ? 'none' : (facingMode === 'user' ? 'scaleX(-1)' : 'none')),
             }}
           />
-          {/* Remote Video Label - Shown for Doctor with Patient Name */}
-          {role === 'doctor' && (
-            <div style={{
-              position: 'absolute',
-              top: '20px',
-              left: '20px',
-              background: 'rgba(0, 0, 0, 0.7)',
-              backdropFilter: 'blur(10px)',
-              color: '#ffffff',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              fontSize: '14px',
-              fontWeight: 500,
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-              display: 'flex',
-              alignItems: 'center',
-            }}>
-              <span>🟢 {remoteUserName || 'Patient'}</span>
-            </div>
-          )}
-          {/* Capture Patient Image Button */}
+          {/* Main Video Participant Label */}
+          <div style={{
+            position: 'absolute',
+            top: '20px',
+            left: '20px',
+            background: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(10px)',
+            color: '#ffffff',
+            padding: '8px 16px',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: 500,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            zIndex: 5,
+          }}>
+            <span>
+              {!isSwapped
+                ? `🟢 ${remoteUserName || (role === 'doctor' ? 'Patient' : 'Doctor')}`
+                : `You (${userName})`}
+            </span>
+            {isSwapped && isMuted && (
+              <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '12px' }}>🔇 Muted</span>
+            )}
+          </div>
+
+          {/* Capture Patient Image Button (when doctor) */}
           {role === 'doctor' && (
             <Button
               icon={<CameraOutlined />}
@@ -1787,6 +1927,7 @@ const VideoCall = () => {
                 height: '42px',
                 padding: '0 20px',
                 boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)',
+                zIndex: 5,
               }}
             >
               Capture Patient Image
@@ -1822,108 +1963,198 @@ const VideoCall = () => {
         </div>
       )}
 
-      {/* Picture-in-Picture Local Video (Small Overlay) */}
+      {/* Picture-in-Picture Floating Window (Draggable WhatsApp-style Dimensions) */}
       <div 
+        ref={pipRef}
         className="local-pip-container"
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        onClick={handlePipClick}
         style={{
           position: 'fixed',
-          bottom: '100px',
-          right: '20px',
-          width: 'clamp(140px, 22vw, 280px)',
-          aspectRatio: '16/9',
-          background: '#1f2937',
+          ...(pipPosition
+            ? { left: `${pipPosition.x}px`, top: `${pipPosition.y}px`, right: 'auto', bottom: 'auto' }
+            : { bottom: '100px', right: '20px' }),
+          width: 'clamp(120px, 16vw, 190px)',
+          aspectRatio: '9 / 16',
+          background: '#111827',
           borderRadius: '16px',
           overflow: 'hidden',
-          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
-          border: '3px solid rgba(16, 185, 129, 0.5)',
-          zIndex: 10,
-          transition: 'all 0.3s ease',
-        }}>
+          boxShadow: isDragging
+            ? '0 20px 48px rgba(0, 0, 0, 0.85), 0 0 0 2px rgba(16, 185, 129, 0.8)'
+            : '0 12px 36px rgba(0, 0, 0, 0.65), 0 0 0 1.5px rgba(255, 255, 255, 0.25)',
+          zIndex: 25,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          touchAction: 'none',
+          userSelect: 'none',
+          transform: isDragging ? 'scale(1.03)' : 'scale(1)',
+          transition: isDragging
+            ? 'box-shadow 0.15s ease, transform 0.15s ease'
+            : 'box-shadow 0.2s ease, transform 0.2s ease, left 0.05s ease, top 0.05s ease',
+        }}
+        title="Drag anywhere • Tap to swap view"
+      >
+        {/* Subtle WhatsApp-style Drag Handle Bar */}
+        <div style={{
+          position: 'absolute',
+          top: '6px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '32px',
+          height: '4px',
+          background: 'rgba(255, 255, 255, 0.55)',
+          borderRadius: '2px',
+          zIndex: 12,
+          pointerEvents: 'none',
+        }} />
+
+        {/* Video Element inside Floating Window */}
         <video
-          ref={localVideoRef}
+          ref={isSwapped ? remoteVideoRef : localVideoRef}
           autoPlay
-          muted
           playsInline
+          muted={!isSwapped} // Local video is muted, remote video plays audio
           style={{
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
+            transform: (isSwapped ? 'none' : (facingMode === 'user' ? 'scaleX(-1)' : 'none')),
+            pointerEvents: 'none',
           }}
         />
-        {/* Local Video Label */}
+
+        {/* Floating Window Action Header (Swap, Switch Camera, Capture) */}
+        <div style={{
+          position: 'absolute',
+          top: '12px',
+          left: '8px',
+          right: '8px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          zIndex: 11,
+          pointerEvents: 'auto',
+        }}>
+          {/* Swap View Button */}
+          <Button
+            icon={<SwapOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsSwapped(prev => !prev);
+            }}
+            size="small"
+            style={{
+              background: 'rgba(0, 0, 0, 0.65)',
+              backdropFilter: 'blur(8px)',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '50%',
+              width: '28px',
+              height: '28px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              padding: 0,
+            }}
+            title="Swap small and fullscreen view"
+          />
+
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {/* Quick Flip Camera Button (when showing local stream in PiP) */}
+            {!isSwapped && (
+              <Button
+                icon={<SyncOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  switchCamera();
+                }}
+                size="small"
+                style={{
+                  position: 'relative',
+                  background: 'rgba(0, 0, 0, 0.65)',
+                  backdropFilter: 'blur(8px)',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '28px',
+                  height: '28px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  padding: 0,
+                }}
+                title="Switch camera"
+              />
+            )}
+
+            {/* Doctor Capture Button directly on PiP */}
+            {role === 'doctor' && (
+              <Button
+                icon={<CameraOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isSwapped) {
+                    captureImage(localVideoRef, 'doctor');
+                  } else {
+                    captureImage(remoteVideoRef, 'patient');
+                  }
+                }}
+                loading={capturing}
+                size="small"
+                style={{
+                  background: 'rgba(16, 185, 129, 0.9)',
+                  backdropFilter: 'blur(8px)',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  fontSize: '11px',
+                  padding: '2px 8px',
+                  height: '28px',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
+                }}
+                title={!isSwapped ? 'Capture Doctor Image' : 'Capture Patient Image'}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Floating Window Label */}
         <div style={{
           position: 'absolute',
           bottom: '8px',
           left: '8px',
+          right: '8px',
           background: 'rgba(0, 0, 0, 0.75)',
           backdropFilter: 'blur(8px)',
           color: '#ffffff',
-          padding: '4px 10px',
+          padding: '4px 8px',
           borderRadius: '6px',
-          fontSize: '12px',
+          fontSize: '11px',
           fontWeight: 500,
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
+          justifyContent: 'space-between',
+          pointerEvents: 'none',
         }}>
-          <span>You ({userName})</span>
-          {isMuted && (
-            <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '11px' }}>
-              🔇 Muted
+          <span style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: '100%',
+          }}>
+            {isSwapped
+              ? (remoteUserName || (role === 'doctor' ? 'Patient' : 'Doctor'))
+              : `You (${userName || 'Me'})`}
+          </span>
+          {!isSwapped && isMuted && (
+            <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '10px', marginLeft: '4px' }}>
+              🔇
             </span>
           )}
         </div>
-        {/* Quick Flip Camera Button on Local PIP */}
-        <Button
-          icon={<SyncOutlined />}
-          onClick={switchCamera}
-          size="small"
-          style={{
-            position: 'absolute',
-            top: '8px',
-            left: '8px',
-            background: 'rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(6px)',
-            color: '#ffffff',
-            border: 'none',
-            borderRadius: '50%',
-            width: '28px',
-            height: '28px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '12px',
-            padding: 0,
-          }}
-          title="Switch camera"
-        />
-        {/* Capture My Image Button */}
-        {role === 'doctor' && (
-          <Button
-            icon={<CameraOutlined />}
-            onClick={() => captureImage(localVideoRef, 'doctor')}
-            loading={capturing}
-            size="small"
-            style={{
-              position: 'absolute',
-              top: '8px',
-              right: '8px',
-              background: 'rgba(16, 185, 129, 0.9)',
-              backdropFilter: 'blur(8px)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontWeight: 600,
-              fontSize: '11px',
-              padding: '2px 8px',
-              height: 'auto',
-              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
-            }}
-          >
-            Capture
-          </Button>
-        )}
       </div>
 
       {/* Meeting Info Bar - Top Right for Doctor */}
