@@ -1490,6 +1490,44 @@ const VideoCall = () => {
     }
   };
 
+  // Draw video onto canvas preserving true aspect ratio (object-fit: cover behavior)
+  const drawVideoCover = (ctx, video, dx, dy, dWidth, dHeight, mirror = false) => {
+    if (!video || video.readyState < 2 || video.paused) return false;
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return false;
+
+    const targetAspect = dWidth / dHeight;
+    const videoAspect = vw / vh;
+
+    let sx = 0;
+    let sy = 0;
+    let sWidth = vw;
+    let sHeight = vh;
+
+    if (videoAspect > targetAspect) {
+      // Video is wider than target container -> crop left/right edges
+      sWidth = vh * targetAspect;
+      sx = (vw - sWidth) / 2;
+    } else if (videoAspect < targetAspect) {
+      // Video is taller than target container -> crop top/bottom edges
+      sHeight = vw / targetAspect;
+      sy = (vh - sHeight) / 2;
+    }
+
+    ctx.save();
+    if (mirror) {
+      ctx.translate(dx + dWidth, dy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, dWidth, dHeight);
+    } else {
+      ctx.drawImage(video, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
+    }
+    ctx.restore();
+    return true;
+  };
+
   // Create real-time HTML5 Canvas call compositor for mobile & desktop call recording
   const createCallCanvasStream = () => {
     const canvas = document.createElement('canvas');
@@ -1508,17 +1546,12 @@ const VideoCall = () => {
         const mainVid = !isSwapped ? remoteVideoRef.current : localVideoRef.current;
         const smallVid = isSwapped ? remoteVideoRef.current : localVideoRef.current;
 
-        // 2. Draw main participant video
-        if (mainVid && mainVid.readyState >= 2 && !mainVid.paused) {
-          ctx.save();
-          if (isSwapped && facingMode === 'user') {
-            ctx.translate(canvas.width, 0);
-            ctx.scale(-1, 1);
-          }
-          ctx.drawImage(mainVid, 0, 0, canvas.width, canvas.height);
-          ctx.restore();
-        } else {
-          // Placeholder
+        // 2. Draw main participant video preserving true natural proportions (1:1 pixel aspect ratio)
+        const isMainMirrored = isSwapped && facingMode === 'user';
+        const mainDrawn = drawVideoCover(ctx, mainVid, 0, 0, canvas.width, canvas.height, isMainMirrored);
+
+        if (!mainDrawn) {
+          // Placeholder when video stream is not active/rendering
           ctx.fillStyle = '#1f2937';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.fillStyle = '#9ca3af';
@@ -1531,10 +1564,10 @@ const VideoCall = () => {
           );
         }
 
-        // 3. Draw PiP floating window in corner (WhatsApp portrait ratio)
+        // 3. Draw PiP floating window in corner (9:16 portrait ratio, aspect ratio preserved)
         if (smallVid && smallVid.readyState >= 2 && !smallVid.paused) {
           const pipW = 200;
-          const pipH = 280;
+          const pipH = 355; // 9:16 portrait ratio (200 * 16 / 9)
           const pipX = canvas.width - pipW - 24;
           const pipY = canvas.height - pipH - 24;
 
@@ -1556,13 +1589,8 @@ const VideoCall = () => {
           }
           ctx.clip();
 
-          if (!isSwapped && facingMode === 'user') {
-            ctx.translate(pipX + pipW, pipY);
-            ctx.scale(-1, 1);
-            ctx.drawImage(smallVid, 0, 0, pipW, pipH);
-          } else {
-            ctx.drawImage(smallVid, pipX, pipY, pipW, pipH);
-          }
+          const isSmallMirrored = !isSwapped && facingMode === 'user';
+          drawVideoCover(ctx, smallVid, pipX, pipY, pipW, pipH, isSmallMirrored);
           ctx.restore();
 
           // PiP Border
@@ -1578,14 +1606,14 @@ const VideoCall = () => {
 
           // PiP Name Tag
           ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-          ctx.fillRect(pipX + 6, pipY + pipH - 24, pipW - 12, 18);
+          ctx.fillRect(pipX + 6, pipY + pipH - 26, pipW - 12, 20);
           ctx.fillStyle = '#ffffff';
           ctx.font = '11px Inter, sans-serif';
           ctx.textAlign = 'left';
           ctx.fillText(
             !isSwapped ? (userName ? `Dr. ${userName}` : 'Doctor') : (remoteUserName || 'Patient'),
             pipX + 12,
-            pipY + pipH - 11
+            pipY + pipH - 12
           );
         }
 
