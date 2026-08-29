@@ -662,6 +662,13 @@ exports.submitClaimForm = async (req, res) => {
       meeting.claimFormSubmitted = true;
       await meeting.save();
       console.log(`Meeting status updated to completed`);
+
+      // Broadcast meeting-ended to any remaining sockets in the room
+      const io = req.app.get('io');
+      if (io && meeting.roomId) {
+        io.to(meeting.roomId).emit('meeting-ended', { roomId: meeting.roomId, status: 'completed' });
+        console.log(`📡 Broadcasted meeting-ended event for room: ${meeting.roomId}`);
+      }
     }
 
     console.log(`Form submitted successfully!`);

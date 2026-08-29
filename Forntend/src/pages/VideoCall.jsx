@@ -195,6 +195,10 @@ const VideoCall = () => {
   const [locationModalVisible, setLocationModalVisible] = useState(false);
   const [locationModalType, setLocationModalType] = useState('doctor');
   const [locationModalCoords, setLocationModalCoords] = useState(null);
+  const [checkingStatus, setCheckingStatus] = useState(true);
+  const [isExpired, setIsExpired] = useState(false);
+  const [expiredReason, setExpiredReason] = useState('');
+  const [hasLeft, setHasLeft] = useState(false);
 
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
@@ -504,6 +508,8 @@ const VideoCall = () => {
   };
 
   useEffect(() => {
+    let activeSocket = null;
+
     // Get user from localStorage if doctor
     if (role === 'doctor') {
       const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -512,29 +518,62 @@ const VideoCall = () => {
       }
     }
 
-    // Fetch meeting details to get claim ID
+    // Fetch meeting details & verify validity
     const fetchMeetingDetails = async () => {
       try {
+        setCheckingStatus(true);
         const response = await getMeetingByRoomId(roomId);
-        if (response && response.success && response.data?.claimId) {
-          const claimObj = response.data.claimId;
-          const actualClaimId = claimObj.claimId || claimObj._id;
-          setClaimId(actualClaimId);
+        
+        if (response && response.success && response.data) {
+          const meetingData = response.data;
+          const claimObj = meetingData.claimId;
+          if (claimObj) {
+            const actualClaimId = claimObj.claimId || claimObj._id;
+            setClaimId(actualClaimId);
+          }
+
+          // Check if meeting or claim is completed / expired
+          const expired = response.isExpired || 
+                          meetingData.status === 'completed' || 
+                          meetingData.status === 'meeting_completed' || 
+                          meetingData.claimFormSubmitted === true ||
+                          (claimObj && claimObj.status === 'closed');
+
+          if (expired) {
+            console.log('🔒 Meeting is completed/expired. Inactivating room access.');
+            setIsExpired(true);
+            setExpiredReason(
+              meetingData.status === 'completed' || meetingData.claimFormSubmitted
+                ? 'This claim verification has been finalized and submitted. The video link has expired.'
+                : 'This video call session has ended. The link is no longer valid.'
+            );
+            setCheckingStatus(false);
+            return;
+          }
         }
+
+        // Only connect socket if meeting is valid and not expired
+        activeSocket = io(SOCKET_URL);
+        setSocket(activeSocket);
       } catch (error) {
-        // Silent for arbitrary test rooms
-        console.log('Meeting details notice (test room):', error.message || error);
+        console.log('Meeting details check error:', error.message || error);
+        if (error.message && error.message.toLowerCase().includes('not found')) {
+          setIsExpired(true);
+          setExpiredReason('Invalid or non-existent meeting link.');
+        } else {
+          // Fallback connect for testing rooms
+          activeSocket = io(SOCKET_URL);
+          setSocket(activeSocket);
+        }
+      } finally {
+        setCheckingStatus(false);
       }
     };
 
     fetchMeetingDetails();
 
-    // Initialize socket
-    const newSocket = io(SOCKET_URL);
-    setSocket(newSocket);
-
     return () => {
-      if (newSocket) newSocket.disconnect();
+      if (activeSocket) activeSocket.disconnect();
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -546,7 +585,7 @@ const VideoCall = () => {
         audioContextRef.current = null;
       }
     };
-  }, [roomId]);
+  }, [roomId, role]);
 
   // Boundary clamping for PiP window (keeps window within screen margins)
   const clampPosition = (x, y) => {
@@ -984,6 +1023,34 @@ const VideoCall = () => {
       setRemoteUserName('');
     });
 
+    // Real-time notification when room is rejected/expired
+    socket.on('meeting-expired', ({ message: expireMsg }) => {
+      console.log('🔒 Socket meeting-expired event received:', expireMsg);
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnection.current) {
+        peerConnection.current.close();
+      }
+      setIsExpired(true);
+      setExpiredReason(expireMsg || 'This video meeting link has expired and is no longer valid.');
+    });
+
+    // Real-time notification when doctor completes/ends meeting
+    socket.on('meeting-ended', () => {
+      console.log('📞 Socket meeting-ended event received');
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnection.current) {
+        peerConnection.current.close();
+      }
+      if (role !== 'doctor') {
+        setIsExpired(true);
+        setExpiredReason('The doctor has concluded this video verification session. Thank you for your time.');
+      }
+    });
+
     // Unblock browser autoplay on any page click if previously blocked
     const handleUserInteraction = () => {
       if (remoteVideoRef.current && remoteStreamRef.current) {
@@ -1004,6 +1071,8 @@ const VideoCall = () => {
       socket.off('request-patient-location');
       socket.off('patient-location-updated');
       socket.off('user-disconnected');
+      socket.off('meeting-expired');
+      socket.off('meeting-ended');
       window.removeEventListener('click', handleUserInteraction);
       window.removeEventListener('touchstart', handleUserInteraction);
     };
@@ -1810,42 +1879,153 @@ const VideoCall = () => {
       socket.disconnect();
     }
 
-    // Mark meeting as completed if doctor
+    // If doctor, broadcast end-meeting, mark completed via backend, and navigate to claim form
     if (role === 'doctor' && roomId) {
+      if (socket) {
+        socket.emit('end-meeting', { roomId });
+      }
+
       try {
-        console.log(`\n📞 === LEAVING MEETING ===`);
+        console.log(`\n📞 === LEAVING MEETING (Doctor) ===`);
         console.log(`Room ID: ${roomId}`);
         console.log(`Claim ID: ${claimId}`);
 
         const response = await completeMeetingByRoomId(roomId);
-
         console.log('✅ API Response:', response);
 
         if (response.success && response.data) {
-          console.log(`📊 Meeting Status: ${response.data.meeting?.status}`);
-          console.log(`📋 Claim Status: ${response.data.claim?.status}`);
-          message.success({
-            content: `Meeting completed! Claim status: ${response.data.claim?.status}`,
-            duration: 3,
-          });
-        } else {
-          message.success('Meeting completed successfully!');
+          message.success('Meeting marked as completed!');
         }
-
-        console.log(`=========================\n`);
       } catch (error) {
         console.error('❌ Error completing meeting:', error);
-        message.error('Failed to mark meeting as completed');
       }
+
+      if (socket) {
+        socket.disconnect();
+      }
+
+      if (claimId) {
+        navigate(`/claim-form?claimId=${claimId}`);
+      } else {
+        navigate('/home');
+      }
+      return;
     }
 
-    // Navigate to claim form if doctor, otherwise go to home
-    if (role === 'doctor' && claimId) {
-      navigate(`/claim-form?claimId=${claimId}`);
-    } else {
-      navigate('/home');
+    // If patient or non-doctor, cleanly exit and show completion screen (NEVER redirect to /home or /login)
+    if (socket) {
+      socket.disconnect();
     }
+    setHasLeft(true);
   };
+
+  // 1. If currently verifying meeting validity
+  if (checkingStatus) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: '#f8fafc',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <Spin size="large" />
+          <Text style={{ display: 'block', marginTop: '16px', color: '#64748b', fontSize: '15px', fontWeight: 500 }}>
+            Verifying video consultation session...
+          </Text>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. If meeting link is expired or participant has left
+  if (isExpired || hasLeft) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #f0fdf4 0%, #f1f5f9 100%)',
+        padding: '20px',
+      }}>
+        <Card style={{
+          maxWidth: 500,
+          width: '100%',
+          boxShadow: '0 12px 36px rgba(0, 0, 0, 0.08)',
+          borderRadius: '20px',
+          border: '1px solid #e2e8f0',
+          textAlign: 'center',
+          padding: '28px 16px',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+            <img src={Logo} alt="Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '16px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }} />
+          </div>
+
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: hasLeft ? '#eff6ff' : '#fef2f2',
+            color: hasLeft ? '#2563eb' : '#dc2626',
+            padding: '6px 18px',
+            borderRadius: '24px',
+            fontSize: '13px',
+            fontWeight: 600,
+            marginBottom: '16px',
+            border: `1px solid ${hasLeft ? '#bfdbfe' : '#fecaca'}`,
+          }}>
+            {hasLeft ? 'ℹ️ Session Concluded' : '🔒 Session Completed / Link Expired'}
+          </div>
+
+          <Title level={3} style={{ color: '#0f172a', marginBottom: '12px', fontWeight: 700 }}>
+            {hasLeft ? 'You Have Left the Call' : 'Meeting Link Expired'}
+          </Title>
+
+          <Text style={{ display: 'block', marginBottom: '24px', color: '#475569', fontSize: '15px', lineHeight: 1.6 }}>
+            {expiredReason || (hasLeft
+              ? 'Thank you for attending the video verification. Your session has ended successfully.'
+              : 'This video meeting link has already been used and completed. For security and privacy, patient meeting links are strictly single-use and cannot be reopened.')}
+          </Text>
+
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '14px',
+            marginBottom: '24px',
+            textAlign: 'left',
+          }}>
+            <Text style={{ fontSize: '13px', color: '#64748b', display: 'block', lineHeight: 1.5 }}>
+              🛡️ <strong>Security Verification:</strong> This session was securely recorded and linked to your verification claim. If you need any assistance, please reach out to your hospital representative or insurance team.
+            </Text>
+          </div>
+
+          <Button
+            type="primary"
+            size="large"
+            block
+            onClick={() => {
+              window.close();
+              message.info('You may now safely close this browser tab.');
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              border: 'none',
+              borderRadius: '10px',
+              height: '48px',
+              fontWeight: 600,
+              fontSize: '15px',
+              boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)',
+            }}
+          >
+            Close This Tab
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   if (!isJoined) {
     return (

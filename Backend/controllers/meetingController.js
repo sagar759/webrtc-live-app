@@ -86,11 +86,11 @@ exports.getMeetingByRoomId = async (req, res) => {
     const { roomId } = req.params;
 
     const meeting = await Meeting.findOne({ roomId })
-      .populate('claimId', 'claimId patientName')
+      .populate('claimId', 'claimId patientName status completedAt')
       .populate('doctorId', 'name email');
 
     if (!meeting) {
-      return res.status(404).json({ message: 'Meeting not found' });
+      return res.status(404).json({ success: false, message: 'Meeting not found' });
     }
 
     const frontendOrigin = getFrontendOrigin(req);
@@ -99,13 +99,21 @@ exports.getMeetingByRoomId = async (req, res) => {
       await meeting.save();
     }
 
+    // Check if the meeting or associated claim is completed/expired
+    const isExpired = meeting.status === 'completed' || 
+                      meeting.status === 'meeting_completed' || 
+                      meeting.claimFormSubmitted === true || 
+                      (meeting.claimId && meeting.claimId.status === 'closed');
+
     res.status(200).json({
       success: true,
       data: meeting,
+      isExpired,
+      isCompleted: isExpired,
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
 
@@ -201,6 +209,13 @@ exports.completeMeetingByRoomId = async (req, res) => {
       console.log(`⚠️ Claim status not changed (current: ${claim.status})`);
     }
 
+    // Broadcast real-time meeting-ended event to all participants in this room
+    const io = req.app.get('io');
+    if (io) {
+      io.to(roomId).emit('meeting-ended', { roomId, status: 'meeting_completed' });
+      console.log(`📡 Broadcasted meeting-ended event to socket room: ${roomId}`);
+    }
+
     console.log(`✅ Meeting marked as completed successfully!`);
     console.log(`===========================\n`);
 
@@ -241,7 +256,7 @@ exports.getMeetingByClaimId = async (req, res) => {
     console.log(`Claim ID: ${claimId}`);
 
     const meeting = await Meeting.findOne({ claimId })
-      .populate('claimId', 'claimId patientName')
+      .populate('claimId', 'claimId patientName status completedAt')
       .populate('doctorId', 'name email');
 
     if (!meeting) {
@@ -288,6 +303,16 @@ exports.startMeetingByRoomId = async (req, res) => {
       return res.status(404).json({ 
         success: false,
         message: 'Meeting not found' 
+      });
+    }
+
+    // Disallow restarting already completed/expired meetings
+    if (meeting.status === 'completed' || meeting.status === 'meeting_completed' || meeting.claimFormSubmitted) {
+      console.log(`⚠️ Meeting ${roomId} is already finished and cannot be started.`);
+      return res.status(400).json({
+        success: false,
+        message: 'This meeting link has already expired and concluded.',
+        isExpired: true,
       });
     }
 

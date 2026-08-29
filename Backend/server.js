@@ -65,13 +65,32 @@ app.get(['/', '/health'], (req, res) => {
   res.json({ status: 'ok', message: 'WebRTC Claims Management API is running', timestamp: new Date().toISOString() });
 });
 
+// Save io instance to app
+app.set('io', io);
+
 // Socket.IO for WebRTC signaling
 const rooms = new Map();
 
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
 
-  socket.on('join-room', ({ roomId, userId, userName, role }) => {
+  socket.on('join-room', async ({ roomId, userId, userName, role }) => {
+    // Check if meeting is already completed or expired in database
+    try {
+      const Meeting = require('./models/Meeting');
+      const meeting = await Meeting.findOne({ roomId }).populate('claimId', 'status');
+      if (meeting && (meeting.status === 'completed' || meeting.status === 'meeting_completed' || meeting.claimFormSubmitted || (meeting.claimId && meeting.claimId.status === 'closed'))) {
+        console.log(`❌ Rejecting socket join for completed/expired meeting room: ${roomId}`);
+        socket.emit('meeting-expired', { 
+          roomId, 
+          message: 'This meeting link has expired and is no longer valid.' 
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn('Meeting expiration check notice in join-room:', e.message);
+    }
+
     socket.join(roomId);
     
     if (!rooms.has(roomId)) {
@@ -96,6 +115,12 @@ io.on('connection', (socket) => {
 
   socket.on('signal', ({ to, signal, from }) => {
     io.to(to).emit('signal', { signal, from });
+  });
+
+  // Broadcast meeting ended by doctor to all participants in room
+  socket.on('end-meeting', ({ roomId }) => {
+    console.log(`Meeting ended broadcast for room ${roomId}`);
+    socket.to(roomId).emit('meeting-ended', { roomId });
   });
 
   // Relay location request to peer in room (e.g. doctor requesting patient location)
