@@ -544,31 +544,47 @@ exports.uploadRecording = async (req, res) => {
     // Upload recording to Azure Blob Storage
     const azureUrl = await uploadFileToAzure(req.file.path, req.file.filename, req.file.mimetype || 'video/webm');
 
+    const finalPath = azureUrl || req.file.path;
+    const isAzure = finalPath.startsWith('http://') || finalPath.startsWith('https://');
+
     // Add recording to claim
     const recording = {
       filename: req.file.filename,
-      path: azureUrl || req.file.path,
+      path: finalPath,
       duration: duration ? parseFloat(duration) : null,
       fileSize: req.file.size,
-      recordedBy: req.user._id,
+      recordedBy: req.user ? req.user._id : claim.createdBy,
       recordedAt: new Date(),
     };
 
     claim.recordings.push(recording);
+
+    // Also persist recording url in formData for direct reference
+    if (!claim.formData) {
+      claim.formData = {};
+    }
+    claim.formData.recording_url = finalPath;
+    claim.formData.video_url = finalPath;
+
     await claim.save();
 
-    console.log(`Recording saved successfully!`);
-    console.log(`File size: ${(req.file.size / 1024 / 1024).toFixed(2)} MB`);
-    console.log(`Total recordings now: ${claim.recordings.length}`);
+    console.log(`[Recording] Successfully saved recording to Claim ${claim.claimId}!`);
+    console.log(`[Recording] Location: ${isAzure ? '☁️ Microsoft Azure Blob Storage' : '📁 Local Storage'}`);
+    console.log(`[Recording] URL/Path: ${finalPath}`);
+    console.log(`[Recording] File size: ${(req.file.size / 1024 / 1024).toFixed(2)} MB`);
+    console.log(`[Recording] Total recordings now: ${claim.recordings.length}`);
     console.log(`===========================\n`);
 
     res.status(200).json({
       success: true,
-      message: 'Screen recording uploaded successfully',
+      message: isAzure 
+        ? 'Video recording uploaded to Azure Blob Cloud Storage successfully' 
+        : 'Video recording saved successfully',
       data: {
         claimId: claim.claimId,
         claimMongoId: claim._id,
         recording: claim.recordings[claim.recordings.length - 1],
+        azureUrl: isAzure ? finalPath : null,
         totalRecordings: claim.recordings.length,
       },
     });

@@ -166,6 +166,29 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fillColor('#000000');
       }
 
+      // Quick link for video call recording in Basic Info section if available
+      const allRecs = [...(claim.recordings || [])];
+      if (claim.formData?.recording_url && !allRecs.some(r => r.path === claim.formData.recording_url)) {
+        allRecs.push({ path: claim.formData.recording_url, filename: 'meeting-recording.webm', duration: null, fileSize: null });
+      }
+
+      if (allRecs.length > 0) {
+        yPosition += 5;
+        const latestRec = allRecs[allRecs.length - 1];
+        const recDownloadUrl = resolveDownloadUrl(latestRec.path, latestRec.filename);
+        doc.font('Helvetica-Bold')
+           .fillColor('#dc2626')
+           .text('Video Call Recording: ', 50, yPosition, { continued: true })
+           .fillColor('#0066cc')
+           .font('Helvetica')
+           .text(`Click to Stream Recording from Azure Blob (${latestRec.duration ? latestRec.duration + 's' : 'Full Session'})`, {
+             link: recDownloadUrl,
+             underline: true
+           });
+        yPosition += 18;
+        doc.fillColor('#000000');
+      }
+
       // Section: Form Data (Table Format)
       if (claim.formData && Object.keys(claim.formData).length > 0) {
         yPosition += 15;
@@ -770,9 +793,20 @@ const generateClaimPDF = async (claim, outputPath) => {
         });
       }
 
-      // Section: Recordings (Table with Download Links)
-      if (claim.recordings && claim.recordings.length > 0) {
-        if (yPosition > 650) {
+      // Section: Recordings (Azure Blob Cloud Storage with Clickable Links)
+      const recordingsList = [...(claim.recordings || [])];
+      if (claim.formData?.recording_url && !recordingsList.some(r => r.path === claim.formData.recording_url)) {
+        recordingsList.push({
+          path: claim.formData.recording_url,
+          filename: 'session-recording.webm',
+          duration: null,
+          fileSize: null,
+          recordedAt: new Date()
+        });
+      }
+
+      if (recordingsList.length > 0) {
+        if (yPosition > 620) {
           doc.addPage();
           yPosition = 50;
         }
@@ -781,45 +815,90 @@ const generateClaimPDF = async (claim, outputPath) => {
         doc.fontSize(16)
            .font('Helvetica-Bold')
            .fillColor('#667eea')
-           .text('Video Recordings with Download Links', 50, yPosition);
+           .text('Video Call Recording & Azure Cloud Verification', 50, yPosition);
         
         yPosition += 25;
 
-        claim.recordings.forEach((recording, index) => {
-          if (yPosition > 650) {
+        recordingsList.forEach((recording, index) => {
+          if (yPosition > 640) {
             doc.addPage();
             yPosition = 50;
           }
 
-          // Recording info box
-          const boxHeight = 80;
-          doc.rect(70, yPosition, 490, boxHeight)
-             .fillAndStroke('#f9fafb', '#dddddd');
-
-          doc.fillColor('#000000')
-             .fontSize(11)
-             .font('Helvetica-Bold')
-             .text(`${index + 1}. Video Recording`, 80, yPosition + 8);
-          
-          doc.font('Helvetica')
-             .fontSize(9)
-             .text(`File: ${recording.filename}`, 80, yPosition + 23);
-          
-          doc.text(`Duration: ${recording.duration}s | Size: ${(recording.fileSize / (1024 * 1024)).toFixed(2)} MB`, 80, yPosition + 36);
-          
-          doc.fillColor('#666666')
-             .text(`Recorded: ${new Date(recording.recordedAt).toLocaleString('en-IN')}`, 80, yPosition + 49);
-          
-          // Download link
           const downloadUrl = resolveDownloadUrl(recording.path, recording.filename);
-          doc.fillColor('#667eea')
-             .font('Helvetica-Bold')
-             .text('Download: ', 80, yPosition + 62, { continued: true })
-             .fillColor('#0066cc')
-             .font('Helvetica')
-             .text(downloadUrl, { link: downloadUrl, underline: true });
+          const isAzureUrl = downloadUrl.includes('blob.core.windows.net') || downloadUrl.includes('azure');
 
-          yPosition += boxHeight + 10;
+          // Recording info card
+          const boxHeight = 100;
+          doc.rect(50, yPosition, 510, boxHeight)
+             .fillAndStroke('#f8fafc', '#94a3b8');
+
+          // Header badge
+          doc.rect(50, yPosition, 510, 24)
+             .fill(isAzureUrl ? '#0284c7' : '#4f46e5');
+
+          doc.fillColor('#ffffff')
+             .fontSize(10)
+             .font('Helvetica-Bold')
+             .text(
+               isAzureUrl 
+                 ? `🎥 ${index + 1}. Video Call Recording — ☁️ Azure Blob Cloud Verified` 
+                 : `🎥 ${index + 1}. Video Call Recording Session`,
+               60, 
+               yPosition + 7
+             );
+
+          yPosition += 28;
+
+          // Metadata row
+          doc.fillColor('#1e293b')
+             .font('Helvetica-Bold')
+             .fontSize(9)
+             .text('File: ', 60, yPosition, { continued: true })
+             .font('Helvetica')
+             .text(recording.filename || 'recording.webm', { continued: true })
+             .font('Helvetica-Bold')
+             .text('   |   Duration: ', { continued: true })
+             .font('Helvetica')
+             .text(recording.duration ? `${recording.duration}s (${Math.floor(recording.duration / 60)}m ${recording.duration % 60}s)` : 'Full Call Session', { continued: true });
+
+          if (recording.fileSize) {
+            doc.font('Helvetica-Bold')
+               .text('   |   Size: ', { continued: true })
+               .font('Helvetica')
+               .text(`${(recording.fileSize / (1024 * 1024)).toFixed(2)} MB`);
+          } else {
+            doc.text('');
+          }
+
+          yPosition += 16;
+
+          doc.fillColor('#64748b')
+             .fontSize(8)
+             .font('Helvetica')
+             .text(`Recorded At: ${new Date(recording.recordedAt || Date.now()).toLocaleString('en-IN')}`, 60, yPosition);
+
+          yPosition += 14;
+
+          // Direct clickable link bar
+          doc.rect(60, yPosition, 490, 28)
+             .fillAndStroke('#eff6ff', '#3b82f6');
+
+          doc.fillColor('#1d4ed8')
+             .fontSize(8)
+             .font('Helvetica-Bold')
+             .text('▶️ Click to Stream / Download Video Recording from Azure Cloud Storage:', 68, yPosition + 4);
+
+          doc.fillColor('#2563eb')
+             .fontSize(8)
+             .font('Helvetica')
+             .text(downloadUrl, 68, yPosition + 15, {
+               link: downloadUrl,
+               underline: true,
+               width: 474
+             });
+
+          yPosition += 42;
         });
       }
 

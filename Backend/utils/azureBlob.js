@@ -12,10 +12,13 @@ function getContainerClient() {
     return containerClient;
   }
 
-  const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
-  const containerName = process.env.AZURE_CONTAINER_NAME || 'claims-media';
+  const rawConn = process.env.AZURE_STORAGE_CONNECTION_STRING || '';
+  const connectionString = rawConn.replace(/^["']|["']$/g, '').trim();
+  const rawContainer = process.env.AZURE_CONTAINER_NAME || 'claims-media';
+  const containerName = rawContainer.replace(/["']/g, '').trim();
 
   if (!connectionString) {
+    console.warn('[Azure Blob] AZURE_STORAGE_CONNECTION_STRING is not defined.');
     return null;
   }
 
@@ -30,12 +33,39 @@ function getContainerClient() {
 }
 
 /**
+ * Detects MIME type from file extension if not provided or generic
+ */
+function getAccurateMimeType(filePathOrName, defaultMime) {
+  if (defaultMime && defaultMime !== 'application/octet-stream') {
+    return defaultMime;
+  }
+  const ext = path.extname(filePathOrName).toLowerCase();
+  switch (ext) {
+    case '.webm':
+      return 'video/webm';
+    case '.mp4':
+      return 'video/mp4';
+    case '.mov':
+      return 'video/quicktime';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.pdf':
+      return 'application/pdf';
+    default:
+      return defaultMime || 'application/octet-stream';
+  }
+}
+
+/**
  * Uploads a local file to Azure Blob Storage and returns its public URL.
  * Falls back to local path if Azure is not configured or upload fails.
  * 
  * @param {string} localFilePath - Path to the file on local disk
  * @param {string} blobName - Target filename in the container
- * @param {string} mimeType - Content type (e.g., 'image/png', 'video/webm')
+ * @param {string} mimeType - Content type (e.g., 'image/png', 'video/webm', 'video/mp4')
  * @returns {Promise<string>} The public Azure Blob URL or the original local path
  */
 async function uploadFileToAzure(localFilePath, blobName, mimeType) {
@@ -47,15 +77,25 @@ async function uploadFileToAzure(localFilePath, blobName, mimeType) {
   }
 
   try {
+    // Ensure container exists
+    try {
+      await client.createIfNotExists();
+    } catch (createErr) {
+      // Ignored if already exists or permission restricted to container level
+    }
+
     const cleanBlobName = (blobName || path.basename(localFilePath)).replace(/\\/g, '/');
     const blockBlobClient = client.getBlockBlobClient(cleanBlobName);
 
-    console.log(`[Azure Blob] Uploading ${cleanBlobName} (${mimeType || 'unknown'})...`);
+    const accurateMime = getAccurateMimeType(cleanBlobName, mimeType);
+    console.log(`[Azure Blob] Uploading ${cleanBlobName} (${accurateMime})...`);
 
-    const options = {};
-    if (mimeType) {
-      options.blobHTTPHeaders = { blobContentType: mimeType };
-    }
+    const options = {
+      blobHTTPHeaders: {
+        blobContentType: accurateMime,
+        blobContentDisposition: 'inline'
+      }
+    };
 
     await blockBlobClient.uploadFile(localFilePath, options);
 
@@ -64,7 +104,6 @@ async function uploadFileToAzure(localFilePath, blobName, mimeType) {
     return publicUrl;
   } catch (error) {
     console.error(`[Azure Blob] Upload failed for ${localFilePath}:`, error.message);
-    // Fall back to local file path so the application flow does not break
     return localFilePath;
   }
 }
@@ -86,13 +125,22 @@ async function uploadBufferToAzure(buffer, blobName, mimeType) {
   }
 
   try {
-    const blockBlobClient = client.getBlockBlobClient(blobName);
-    console.log(`[Azure Blob] Uploading buffer ${blobName} (${mimeType || 'application/octet-stream'})...`);
+    try {
+      await client.createIfNotExists();
+    } catch (createErr) {}
 
-    const options = {};
-    if (mimeType) {
-      options.blobHTTPHeaders = { blobContentType: mimeType };
-    }
+    const cleanBlobName = blobName.replace(/\\/g, '/');
+    const blockBlobClient = client.getBlockBlobClient(cleanBlobName);
+    const accurateMime = getAccurateMimeType(cleanBlobName, mimeType);
+
+    console.log(`[Azure Blob] Uploading buffer ${cleanBlobName} (${accurateMime})...`);
+
+    const options = {
+      blobHTTPHeaders: {
+        blobContentType: accurateMime,
+        blobContentDisposition: 'inline'
+      }
+    };
 
     await blockBlobClient.uploadData(buffer, options);
 

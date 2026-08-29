@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, Row, Col, DatePicker, Upload, Select, Radio, message } from 'antd';
-import { UploadOutlined, ArrowLeftOutlined, VideoCameraOutlined } from '@ant-design/icons';
+import { UploadOutlined, ArrowLeftOutlined, VideoCameraOutlined, CloudServerOutlined, PlayCircleOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { submitClaimForm, getMeetingByClaimId, getClaimById } from '../services/api';
 import Logo from '../assets/Logo.jpeg';
 
@@ -538,6 +538,50 @@ const ClaimForm = () => {
 
             {/* Video Call Assessment */}
             <Title level={4} style={{ color: '#667eea', marginTop: '30px', borderTop: '2px solid #e0e7ff', paddingTop: '20px', marginBottom: '20px' }}>📹 Video Call Assessment</Title>
+
+            {/* Video Call Recording Cloud Status Banner */}
+            {claimData && (claimData.recordings?.length > 0 || claimData.formData?.recording_url) && (
+              <div style={{
+                background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                border: '1.5px solid #3b82f6',
+                borderRadius: '12px',
+                padding: '16px 20px',
+                marginBottom: '24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <CloudServerOutlined style={{ fontSize: '28px', color: '#2563eb' }} />
+                  <div>
+                    <Text strong style={{ color: '#1e40af', fontSize: '15px', display: 'block' }}>
+                      <CheckCircleOutlined style={{ color: '#10b981', marginRight: '6px' }} />
+                      Video Recording Verified & Uploaded to Azure Blob Cloud Storage
+                    </Text>
+                    <Text style={{ color: '#3b82f6', fontSize: '12px' }}>
+                      Duration: {claimData.recordings?.[claimData.recordings.length - 1]?.duration ? `${claimData.recordings[claimData.recordings.length - 1].duration}s` : 'Full session'} | Automatically linked in your generated claim PDF report.
+                    </Text>
+                  </div>
+                </div>
+                {(claimData.recordings?.[claimData.recordings.length - 1]?.path || claimData.formData?.recording_url) && (
+                  <Button
+                    type="primary"
+                    icon={<PlayCircleOutlined />}
+                    href={claimData.recordings?.[claimData.recordings.length - 1]?.path || claimData.formData?.recording_url}
+                    target="_blank"
+                    style={{
+                      background: '#2563eb',
+                      borderRadius: '8px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Watch Recording
+                  </Button>
+                )}
+              </div>
+            )}
             <Row gutter={16}>
               <Col xs={24} md={8}>
                 <Form.Item

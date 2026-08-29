@@ -22,17 +22,18 @@ const storage = multer.diskStorage({
 // File filter
 const fileFilter = (req, file, cb) => {
   // Accept images, PDFs, documents, and video files
-  const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx|webm|mp4|avi|mov/;
+  const allowedTypes = /jpeg|jpg|png|gif|webp|pdf|doc|docx|webm|mp4|avi|mov|mkv|3gp|ogg/;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
   
-  // Check mimetype
-  const allowedMimeTypes = /image\/.*|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|video\/webm|video\/mp4|video\/x-msvideo|video\/quicktime/;
+  // Check mimetype (includes video/* and octet-stream fallback when extension is valid)
+  const allowedMimeTypes = /image\/.*|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|video\/.*|application\/octet-stream/;
   const mimetype = allowedMimeTypes.test(file.mimetype);
 
-  if (mimetype && extname) {
+  if (mimetype || extname) {
     return cb(null, true);
   } else {
-    cb(new Error('Only images, PDFs, documents, and video files are allowed!'));
+    console.warn(`[Upload Filter] Rejected file: ${file.originalname} (MIME: ${file.mimetype})`);
+    cb(new Error(`File type not allowed: ${file.originalname} (${file.mimetype})`));
   }
 };
 
@@ -40,7 +41,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB limit for recordings
+    fileSize: 200 * 1024 * 1024 // 200MB limit for recordings & documents
   },
   fileFilter: fileFilter
 });

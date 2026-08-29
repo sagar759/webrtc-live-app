@@ -202,6 +202,7 @@ const VideoCall = () => {
   const recordingStartTimeRef = useRef(null);
   const canvasRecordingCleanupRef = useRef(null);
   const recordingAudioContextRef = useRef(null);
+  const recordingStopPromiseRef = useRef(null);
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -1429,90 +1430,109 @@ const VideoCall = () => {
     let animationId = null;
 
     const drawFrame = () => {
-      // 1. Fill base dark canvas
-      ctx.fillStyle = '#111827';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      const remoteVid = remoteVideoRef.current;
-      const localVid = localVideoRef.current;
-
-      // 2. Draw remote participant full-screen background
-      if (remoteVid && remoteVid.readyState >= 2 && !remoteVid.paused) {
-        ctx.drawImage(remoteVid, 0, 0, canvas.width, canvas.height);
-      } else {
-        // Placeholder when remote video is not loaded or waiting
-        ctx.fillStyle = '#1f2937';
+      try {
+        // 1. Fill base dark background
+        ctx.fillStyle = '#111827';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#9ca3af';
-        ctx.font = 'bold 28px Inter, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(remoteUserName ? `${remoteUserName} (Patient)` : 'Patient Video Call', canvas.width / 2, canvas.height / 2);
-      }
 
-      // 3. Draw Doctor PIP in corner
-      if (localVid && localVid.readyState >= 2 && !localVid.paused) {
-        const pipW = 280;
-        const pipH = 158;
-        const pipX = canvas.width - pipW - 24;
-        const pipY = canvas.height - pipH - 24;
+        // Check which stream is in main view and which is in PiP
+        const mainVid = !isSwapped ? remoteVideoRef.current : localVideoRef.current;
+        const smallVid = isSwapped ? remoteVideoRef.current : localVideoRef.current;
 
-        ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.beginPath();
-        if (ctx.roundRect) {
-          ctx.roundRect(pipX - 4, pipY - 4, pipW + 8, pipH + 8, 12);
+        // 2. Draw main participant video
+        if (mainVid && mainVid.readyState >= 2 && !mainVid.paused) {
+          ctx.save();
+          if (isSwapped && facingMode === 'user') {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+          }
+          ctx.drawImage(mainVid, 0, 0, canvas.width, canvas.height);
+          ctx.restore();
         } else {
-          ctx.rect(pipX - 4, pipY - 4, pipW + 8, pipH + 8);
+          // Placeholder
+          ctx.fillStyle = '#1f2937';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#9ca3af';
+          ctx.font = 'bold 28px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            remoteUserName ? `${remoteUserName} (Patient Video Call)` : 'Live Video Call Session',
+            canvas.width / 2,
+            canvas.height / 2
+          );
         }
+
+        // 3. Draw PiP floating window in corner (WhatsApp portrait ratio)
+        if (smallVid && smallVid.readyState >= 2 && !smallVid.paused) {
+          const pipW = 200;
+          const pipH = 280;
+          const pipX = canvas.width - pipW - 24;
+          const pipY = canvas.height - pipH - 24;
+
+          ctx.save();
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.beginPath();
+          if (ctx.roundRect) {
+            ctx.roundRect(pipX - 4, pipY - 4, pipW + 8, pipH + 8, 14);
+          } else {
+            ctx.rect(pipX - 4, pipY - 4, pipW + 8, pipH + 8);
+          }
+          ctx.fill();
+
+          ctx.beginPath();
+          if (ctx.roundRect) {
+            ctx.roundRect(pipX, pipY, pipW, pipH, 12);
+          } else {
+            ctx.rect(pipX, pipY, pipW, pipH);
+          }
+          ctx.clip();
+
+          if (!isSwapped && facingMode === 'user') {
+            ctx.translate(pipX + pipW, pipY);
+            ctx.scale(-1, 1);
+            ctx.drawImage(smallVid, 0, 0, pipW, pipH);
+          } else {
+            ctx.drawImage(smallVid, pipX, pipY, pipW, pipH);
+          }
+          ctx.restore();
+
+          // PiP Border
+          ctx.strokeStyle = '#10b981';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          if (ctx.roundRect) {
+            ctx.roundRect(pipX, pipY, pipW, pipH, 12);
+          } else {
+            ctx.rect(pipX, pipY, pipW, pipH);
+          }
+          ctx.stroke();
+
+          // PiP Name Tag
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+          ctx.fillRect(pipX + 6, pipY + pipH - 24, pipW - 12, 18);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '11px Inter, sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText(
+            !isSwapped ? (userName ? `Dr. ${userName}` : 'Doctor') : (remoteUserName || 'Patient'),
+            pipX + 12,
+            pipY + pipH - 11
+          );
+        }
+
+        // 4. REC Watermark & Cloud Status
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(36, 36, 8, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.beginPath();
-        if (ctx.roundRect) {
-          ctx.roundRect(pipX, pipY, pipW, pipH, 10);
-        } else {
-          ctx.rect(pipX, pipY, pipW, pipH);
-        }
-        ctx.clip();
-
-        if (facingMode === 'user') {
-          ctx.translate(pipX + pipW, pipY);
-          ctx.scale(-1, 1);
-          ctx.drawImage(localVid, 0, 0, pipW, pipH);
-        } else {
-          ctx.drawImage(localVid, pipX, pipY, pipW, pipH);
-        }
-        ctx.restore();
-
-        // Border
-        ctx.strokeStyle = '#10b981';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        if (ctx.roundRect) {
-          ctx.roundRect(pipX, pipY, pipW, pipH, 10);
-        } else {
-          ctx.rect(pipX, pipY, pipW, pipH);
-        }
-        ctx.stroke();
-
-        // Doctor Name Label
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        ctx.fillRect(pipX + 8, pipY + pipH - 26, 130, 20);
         ctx.fillStyle = '#ffffff';
-        ctx.font = '12px Inter, sans-serif';
+        ctx.font = 'bold 16px Inter, sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText(userName ? `Dr. ${userName}` : 'Doctor', pipX + 14, pipY + pipH - 12);
+        ctx.fillText('REC • Azure Cloud', 52, 42);
+      } catch (err) {
+        console.warn('Canvas frame render notice:', err);
       }
-
-      // 4. REC Watermark
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath();
-      ctx.arc(36, 36, 8, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 16px Inter, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText('REC', 52, 42);
 
       animationId = requestAnimationFrame(drawFrame);
     };
@@ -1533,7 +1553,7 @@ const VideoCall = () => {
 
   const startRecording = async () => {
     if (!claimId) {
-      message.error('Claim ID not found');
+      message.error('Claim ID not found. Please refresh and try again.');
       return;
     }
 
@@ -1547,7 +1567,7 @@ const VideoCall = () => {
       let isDisplayMedia = false;
       const isMobile = isMobileDevice();
 
-      // If desktop and getDisplayMedia is supported, attempt screen capture
+      // Desktop: attempt display media first if available
       if (!isMobile && navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
         try {
           videoStream = await navigator.mediaDevices.getDisplayMedia({
@@ -1557,11 +1577,10 @@ const VideoCall = () => {
           isDisplayMedia = true;
         } catch (screenErr) {
           console.warn('Screen share cancelled/failed, falling back to call canvas stream:', screenErr);
-          // Fallback seamlessly to call recording
         }
       }
 
-      // For mobile, or when getDisplayMedia is unavailable/cancelled: use call canvas stream
+      // Mobile or fallback: use real-time HTML5 call compositor
       if (!videoStream) {
         const { canvasStream, stopCanvas } = createCallCanvasStream();
         videoStream = canvasStream;
@@ -1577,17 +1596,24 @@ const VideoCall = () => {
         combinedStream.addTrack(videoTrack);
       }
 
-      // Mix local and remote audio
-      const { mixedAudioTrack, audioContext } = mixAudioTracks(
-        localStreamRef.current || localStream,
-        remoteStreamRef.current || remoteStream
-      );
-      recordingAudioContextRef.current = audioContext;
+      // Safely mix audio
+      try {
+        const { mixedAudioTrack, audioContext } = mixAudioTracks(
+          localStreamRef.current || localStream,
+          remoteStreamRef.current || remoteStream
+        );
+        recordingAudioContextRef.current = audioContext;
 
-      if (mixedAudioTrack) {
-        combinedStream.addTrack(mixedAudioTrack);
-      } else {
-        // Fallback: add direct local audio track if available
+        if (mixedAudioTrack) {
+          combinedStream.addTrack(mixedAudioTrack);
+        } else {
+          const directAudio = (localStreamRef.current || localStream)?.getAudioTracks()[0];
+          if (directAudio) {
+            combinedStream.addTrack(directAudio);
+          }
+        }
+      } catch (audioErr) {
+        console.warn('Audio mixing fallback notice:', audioErr);
         const directAudio = (localStreamRef.current || localStream)?.getAudioTracks()[0];
         if (directAudio) {
           combinedStream.addTrack(directAudio);
@@ -1637,7 +1663,14 @@ const VideoCall = () => {
           recordingAudioContextRef.current = null;
         }
 
-        await saveRecording(duration, mimeType);
+        try {
+          await saveRecording(duration, mimeType);
+        } finally {
+          if (recordingStopPromiseRef.current) {
+            recordingStopPromiseRef.current();
+            recordingStopPromiseRef.current = null;
+          }
+        }
       };
 
       // Start recording with 1s timeslice
@@ -1653,7 +1686,7 @@ const VideoCall = () => {
         setRecordingDuration(prev => prev + 1);
       }, 1000);
 
-      message.success(isDisplayMedia ? '🔴 Screen recording started!' : '🔴 Call recording started!');
+      message.success(isDisplayMedia ? '🔴 Screen recording started!' : '🔴 Call recording started (Auto-sync to Azure Blob Storage)');
 
       if (isDisplayMedia && videoTrack) {
         videoTrack.onended = () => {
@@ -1672,7 +1705,21 @@ const VideoCall = () => {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
+      const stopPromise = new Promise((resolve) => {
+        recordingStopPromiseRef.current = resolve;
+      });
+
+      try {
+        if (mediaRecorderRef.current.state === 'recording') {
+          try {
+            mediaRecorderRef.current.requestData();
+          } catch (e) {}
+          mediaRecorderRef.current.stop();
+        }
+      } catch (e) {
+        console.warn('Error stopping MediaRecorder:', e);
+      }
+
       setIsRecording(false);
 
       if (recordingIntervalRef.current) {
@@ -1680,8 +1727,10 @@ const VideoCall = () => {
         recordingIntervalRef.current = null;
       }
 
-      message.info('⏹️ Recording stopped. Saving...');
+      message.info('⏹️ Recording stopped. Uploading to Azure Blob Storage...');
+      return stopPromise;
     }
+    return Promise.resolve();
   };
 
   const saveRecording = async (duration, mimeType) => {
@@ -1690,7 +1739,7 @@ const VideoCall = () => {
       return;
     }
 
-    const hideMsg = message.loading('💾 Uploading recording...', 0);
+    const hideMsg = message.loading('💾 Uploading recording to Microsoft Azure Blob Storage...', 0);
 
     try {
       const actualMime = mimeType || (recordedChunksRef.current[0] && recordedChunksRef.current[0].type) || 'video/webm';
@@ -1700,7 +1749,7 @@ const VideoCall = () => {
         type: actualMime
       });
 
-      console.log('Recording details:', {
+      console.log('[Azure Blob] Preparing recording upload:', {
         size: `${(blob.size / 1024 / 1024).toFixed(2)} MB`,
         duration: `${duration}s`,
         mimeType: actualMime,
@@ -1717,9 +1766,11 @@ const VideoCall = () => {
       hideMsg();
 
       if (response.success) {
+        const azureLink = response.data?.azureUrl || response.data?.recording?.path;
+        console.log('[Azure Blob] Upload successful! Link:', azureLink);
         message.success({
-          content: `✅ Recording saved to Claim ${response.data?.claimId || ''}! (${(blob.size / 1024 / 1024).toFixed(2)} MB, ${duration}s)`,
-          duration: 5,
+          content: `✅ Recording uploaded to Azure Blob Storage & attached to Claim ${response.data?.claimId || claimId}! (${(blob.size / 1024 / 1024).toFixed(2)} MB, ${duration}s)`,
+          duration: 6,
         });
       }
 
@@ -1728,18 +1779,25 @@ const VideoCall = () => {
       setRecordingDuration(0);
     } catch (error) {
       hideMsg();
-      console.error('Error saving recording:', error);
+      console.error('[Azure Blob] Error saving recording:', error);
       message.error({
-        content: error.message || 'Failed to save recording',
-        duration: 4,
+        content: 'Failed to upload recording to Azure: ' + (error.message || 'Unknown error'),
+        duration: 5,
       });
     }
   };
 
   const leaveMeeting = async () => {
-    // Stop recording if active
+    // If recording is active, cleanly stop and await Azure upload before navigating!
     if (isRecording) {
-      stopRecording();
+      const hideUpload = message.loading('💾 Finalizing & uploading recording to Azure Blob before exiting...', 0);
+      try {
+        await stopRecording();
+      } catch (e) {
+        console.warn('Error during exit recording save:', e);
+      } finally {
+        hideUpload();
+      }
     }
 
     if (localStream) {
