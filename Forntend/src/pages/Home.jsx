@@ -776,9 +776,14 @@ function Home() {
           boxShadow: '0 4px 12px rgba(102, 126, 234, 0.15)'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-            <div style={{ flex: '1 1 auto', minWidth: '200px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <img src={Logo} alt="Logo" style={{ objectFit: 'cover', borderRadius: '12px', width: '400PX', height: 'auto' }} />
-              <div>
+            <div style={{ flex: '1 1 auto', minWidth: '200px', display: 'flex', alignItems: 'center', gap: '20px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <img src={Logo} alt="Saturn Health Investigation Logo" style={{ objectFit: 'contain', borderRadius: '10px', height: '60px', width: 'auto' }} />
+                <span style={{ fontSize: '13px', fontWeight: 700, color: '#1f2937', letterSpacing: '0.4px', marginTop: '6px' }}>
+                  Saturn Health Investigation
+                </span>
+              </div>
+              <div style={{ borderLeft: '2px solid #e5e7eb', paddingLeft: '20px' }}>
                 <Title className="responsive-title" level={2} style={{ margin: 0, color: '#000000', fontWeight: 700 }}>
                   Dashboard
                 </Title>

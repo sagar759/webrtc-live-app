@@ -20,7 +20,7 @@ function Login() {
     setLoading(true);
     try {
       const response = await doctorLogin(values.email, values.password);
-      
+
       if (response.success) {
         localStorage.setItem('user', JSON.stringify(response.data));
         message.success('Login successful!');
@@ -46,7 +46,7 @@ function Login() {
     setLoading(true);
     try {
       const response = await adminLogin(values.email, values.password);
-      
+
       if (response.success) {
         setAdminToken(response.data.token);
         message.success('Admin login successful!');
@@ -72,7 +72,7 @@ function Login() {
     setLoading(true);
     try {
       const response = await registerDoctor(values, adminToken);
-      
+
       if (response.success) {
         message.success('Doctor registered successfully! Please login with your credentials.');
         setIsDoctorRegisterModalOpen(false);
@@ -141,11 +141,11 @@ function Login() {
             zIndex: 1
           }}
         >
-          <div style={{ textAlign: 'center', marginBottom: '32px' }} className="animate-slide-in">
+          <div style={{ textAlign: 'center', marginBottom: '28px' }} className="animate-slide-in">
             <div style={{
               width: '120px',
               height: '120px',
-              margin: '0 auto 20px',
+              margin: '0 auto 12px',
               borderRadius: '20px',
               display: 'flex',
               alignItems: 'center',
@@ -153,7 +153,16 @@ function Login() {
               boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
               overflow: 'hidden'
             }}>
-              <img src={Logo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <img src={Logo} alt="Saturn Health Investigation Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            </div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: 700,
+              color: '#1f2937',
+              letterSpacing: '0.4px',
+              marginBottom: '16px'
+            }}>
+              Saturn Health Investigation
             </div>
             <Title level={2} style={{ color: '#000000', marginBottom: '8px', fontWeight: 700 }}>
               Welcome Back

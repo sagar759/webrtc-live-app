@@ -161,8 +161,11 @@ const ClaimForm = () => {
         </div>
 
         <Card style={{ borderRadius: '16px', boxShadow: '0 8px 32px rgba(0,0,0,0.1)' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '20px' }}>
-            <img src={Logo} alt="Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '12px' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', marginBottom: '20px' }}>
+            <img src={Logo} alt="Saturn Health Investigation Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '12px' }} />
+            <span style={{ fontSize: '15px', fontWeight: 700, color: '#1f2937', letterSpacing: '0.4px', marginTop: '8px' }}>
+              Saturn Health Investigation
+            </span>
           </div>
           <Title level={2} style={{ textAlign: 'center', marginBottom: '10px', color: '#667eea' }}>
             📋 Detailed Claim Form

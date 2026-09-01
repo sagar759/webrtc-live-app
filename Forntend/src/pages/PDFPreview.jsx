@@ -101,8 +101,13 @@ const PDFPreview = () => {
             alignItems: 'center',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <img src={Logo} alt="Logo" style={{ width: '60px', height: '60px', objectFit: 'contain', borderRadius: '12px' }} />
-              <div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <img src={Logo} alt="Saturn Health Investigation Logo" style={{ width: '55px', height: '55px', objectFit: 'contain', borderRadius: '10px' }} />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#374151', letterSpacing: '0.3px', marginTop: '4px', textAlign: 'center', maxWidth: '140px', lineHeight: '1.2' }}>
+                  Saturn Health Investigation
+                </span>
+              </div>
+              <div style={{ borderLeft: '2px solid #e5e7eb', paddingLeft: '16px' }}>
                 <Title level={2} style={{ margin: 0, color: '#667eea' }}>
                   <FilePdfOutlined style={{ marginRight: '12px' }} />
                   PDF Report Preview

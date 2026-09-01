@@ -1987,8 +1987,11 @@ const VideoCall = () => {
           textAlign: 'center',
           padding: '28px 16px',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
-            <img src={Logo} alt="Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '16px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', marginBottom: '20px' }}>
+            <img src={Logo} alt="Saturn Health Investigation Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '16px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }} />
+            <span style={{ fontSize: '15px', fontWeight: 700, color: '#1f2937', letterSpacing: '0.4px', marginTop: '8px' }}>
+              Saturn Health Investigation
+            </span>
           </div>
 
           <div style={{
@@ -2070,8 +2073,11 @@ const VideoCall = () => {
           borderRadius: '16px',
           border: '2px solid #10b981',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
-            <img src={Logo} alt="Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '12px' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', marginBottom: '20px' }}>
+            <img src={Logo} alt="Saturn Health Investigation Logo" style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '12px' }} />
+            <span style={{ fontSize: '15px', fontWeight: 700, color: '#1f2937', letterSpacing: '0.4px', marginTop: '8px' }}>
+              Saturn Health Investigation
+            </span>
           </div>
           <Title level={3} style={{ color: '#000000', textAlign: 'center', marginBottom: '24px' }}>
             <VideoCameraOutlined style={{ color: '#10b981', marginRight: '12px' }} />
